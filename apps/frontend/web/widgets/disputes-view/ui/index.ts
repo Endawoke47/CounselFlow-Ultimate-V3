@@ -1,0 +1,1 @@
+export { DisputesContent } from './DisputesContent';

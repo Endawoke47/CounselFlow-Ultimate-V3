@@ -1,0 +1,93 @@
+{
+  "name": "counselflow-ultimate",
+  "version": "1.0.0",
+  "description": "The Ultimate Legal Management System - Combining the best of CounselFlow-VX and CounselFlow-Ukraine",
+  "author": "CounselFlow Team",
+  "private": true,
+  "license": "MIT",
+  "workspaces": [
+    "apps/*",
+    "packages/*",
+    "services/*"
+  ],
+  "engines": {
+    "node": "^18.0.0 || ^20.0.0",
+    "npm": "^9.0.0"
+  },
+  "scripts": {
+    "build": "turbo run build",
+    "dev": "turbo run dev --parallel",
+    "test": "turbo run test",
+    "lint": "turbo run lint",
+    "clean": "turbo run clean && rm -rf node_modules",
+    
+    "backend:dev": "npm run dev --workspace=apps/backend",
+    "backend:build": "npm run build --workspace=apps/backend",
+    "backend:test": "npm run test --workspace=apps/backend",
+    
+    "frontend:dev": "npm run dev --workspace=apps/frontend-web",
+    "frontend:build": "npm run build --workspace=apps/frontend-web",
+    "frontend:test": "npm run test --workspace=apps/frontend-web",
+    
+    "ai:dev": "npm run dev --workspace=apps/ai-engine",
+    "ai:build": "npm run build --workspace=apps/ai-engine",
+    
+    "docker:build": "docker-compose build",
+    "docker:up": "docker-compose up -d",
+    "docker:down": "docker-compose down",
+    
+    "k8s:deploy": "./tools/scripts/deploy-k8s.sh",
+    "k8s:destroy": "./tools/scripts/destroy-k8s.sh",
+    
+    "migration:create": "npm run migration:create --workspace=apps/backend",
+    "migration:run": "npm run migration:run --workspace=apps/backend",
+    "migration:revert": "npm run migration:revert --workspace=apps/backend",
+    
+    "security:scan": "npm audit && npm run security:check",
+    "security:check": "turbo run security:check",
+    
+    "deploy:dev": "./tools/scripts/deploy-dev.sh",
+    "deploy:staging": "./tools/scripts/deploy-staging.sh",
+    "deploy:prod": "./tools/scripts/deploy-prod.sh"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "turbo": "^1.10.0",
+    "typescript": "^5.0.0",
+    "eslint": "^8.0.0",
+    "prettier": "^3.0.0",
+    "husky": "^8.0.0",
+    "lint-staged": "^15.0.0"
+  },
+  "keywords": [
+    "legal-tech",
+    "law-firm-management",
+    "case-management",
+    "legal-ai",
+    "contract-management",
+    "compliance",
+    "legal-research",
+    "document-automation",
+    "risk-management",
+    "legal-analytics"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Endawoke47/CounselFlow-Ultimate.git"
+  },
+  "husky": {
+    "hooks": {
+      "pre-commit": "lint-staged",
+      "pre-push": "npm test"
+    }
+  },
+  "lint-staged": {
+    "*.{ts,tsx,js,jsx}": [
+      "eslint --fix",
+      "prettier --write"
+    ],
+    "*.{json,md,yml,yaml}": [
+      "prettier --write"
+    ]
+  }
+}

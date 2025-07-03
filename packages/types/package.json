@@ -1,0 +1,27 @@
+{
+  "name": "@counselflow/types",
+  "version": "1.0.0",
+  "private": true,
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch --preserveWatchOutput",
+    "build:watch": "tsc --watch --preserveWatchOutput",
+    "clean": "rm -rf dist node_modules",
+    "lint": "npx eslint ./src",
+    "lint:fix": "npx eslint ./src --fix"
+  },
+  "keywords": ["typescript", "types", "legal", "counselflow"],
+  "author": "CounselFlow Team",
+  "description": "Shared TypeScript types for CounselFlow Ukraine",
+  "license": "MIT",
+  "devDependencies": {
+    "@eslint/eslintrc": "^3.3.1",
+    "@eslint/js": "^9.25.1",
+    "@typescript-eslint/eslint-plugin": "^8.31.0",
+    "@typescript-eslint/parser": "^8.31.0",
+    "rimraf": "^5.0.0",
+    "typescript": "^5.0.0"
+  }
+}

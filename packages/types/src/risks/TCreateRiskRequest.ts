@@ -1,0 +1,30 @@
+import { RiskLikelihood, RiskMitigationStatus, RiskPriority, RiskReputationalImpact, RiskStatus, RiskTolerance } from './TRiskEnums';
+
+export type TCreateRiskRequest = {
+  matterId: number;
+  matterType?: string;
+  name: string;
+  category: string;
+  score: number;
+  description: string;
+  inherentLikelihood: RiskLikelihood;
+  financialImpactMin?: number;
+  financialImpactMax?: number;
+  currency?: string;
+  priority: RiskPriority;
+  tolerance: RiskTolerance;
+  mitigationPlan?: string;
+  mitigationStatus: RiskMitigationStatus;
+  ownerId?: number;
+  internalDepartmentCode?: string;
+  documentAccess?: string;
+  documentLinks?: string[];
+  reputationalAssessment?: RiskReputationalImpact;
+  identificationDate: string;
+  reviewDate?: string;
+  resolutionDate?: string;
+  regulatoryImplications: boolean;
+  relatedRegulations?: string[];
+  status: RiskStatus;
+  notes?: string;
+}; 

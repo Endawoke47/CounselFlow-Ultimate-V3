@@ -1,0 +1,1 @@
+export {GenerateReport} from './GenerateReport';
