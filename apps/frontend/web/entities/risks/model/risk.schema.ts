@@ -5,7 +5,7 @@ import {
   RiskReputationalImpact,
   RiskStatus,
   RiskTolerance,
-} from '1pd-types';
+} from '@counselflow/types';
 import { z } from 'zod';
 
 // Convert enum to array of values for Zod enum validation

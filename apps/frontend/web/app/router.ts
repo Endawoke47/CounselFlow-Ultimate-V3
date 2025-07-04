@@ -22,7 +22,7 @@ import {
   addDisputeRoute,
   editDisputeRoute,
   Route as DisputeRoute,
-} from '@/app/routes/disputs';
+} from '@/app/routes/disputes';
 import {
   createRiskRoute,
   deleteRiskRoute,
@@ -30,7 +30,7 @@ import {
   listRisksRoute,
   viewRiskRoute
 } from '@/app/routes/risks';
-import { DashboardPage } from '@/pages/Dashboard';
+import { Route as dashboardRoute } from '@/app/routes/dashboard';
 
 // Create a root index route with redirect
 const indexRoute = createRoute({
@@ -43,12 +43,7 @@ const indexRoute = createRoute({
   },
 });
 
-// Create a dashboard redirect route
-const dashboardRoute = createRoute({
-  getParentRoute: () => rootRoute,
-  path: '/dashboard',
-  component: DashboardPage
-});
+// Dashboard route is imported from routes/dashboard.tsx
 
 const routeTree = rootRoute.addChildren([
   indexRoute,

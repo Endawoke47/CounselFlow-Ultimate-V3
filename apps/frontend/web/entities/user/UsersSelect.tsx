@@ -1,4 +1,4 @@
-import { IUser } from '1pd-types';
+import { IUser } from '@counselflow/types';
 import { FC } from 'react';
 
 import { APP_ROUTES } from '@/entities/api/routes';

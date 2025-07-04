@@ -1,4 +1,4 @@
-import { IMatter } from '1pd-types';
+import { IMatter } from '@counselflow/types';
 
 export const matterToForm = (matter: IMatter) => {
   return {

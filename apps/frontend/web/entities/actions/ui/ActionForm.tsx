@@ -1,4 +1,4 @@
-import { IAction } from '1pd-types';
+import { IAction } from '@counselflow/types';
 import { yupResolver } from '@hookform/resolvers/yup';
 import { Link } from '@tanstack/react-router';
 import { PlusIcon } from 'lucide-react';
@@ -18,7 +18,7 @@ import { ActionStatusSelect } from '@/entities/actions/ui/ActionStatusSelect';
 import { ActionTypeSelect } from '@/entities/actions/ui/ActionTypeSelect';
 import MatterSelect from '@/entities/matters/ui/MatterSelect';
 import UsersSelect from '@/entities/user/UsersSelect';
-import { Button } from '@/shared/ui';
+import { Button } from '@/components/ui/Button';
 import { Checkbox } from '@/shared/ui/Checkbox';
 import { DatePicker } from '@/shared/ui/DatePicker';
 import { DeleteButton } from '@/shared/ui/DeleteButton';

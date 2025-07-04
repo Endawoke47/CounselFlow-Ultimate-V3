@@ -1,4 +1,4 @@
-import { IMatter } from '1pd-types';
+import { IMatter } from '@counselflow/types';
 import { FC } from 'react';
 
 import { APP_ROUTES } from '@/entities/api/routes';

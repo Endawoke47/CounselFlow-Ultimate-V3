@@ -1,4 +1,4 @@
-import { TPaginatedResponse } from '1pd-types';
+import { TPaginatedResponse } from '@counselflow/types';
 import { ICompany, ICreateCompanyRequest } from '1pd-types/src/companies';
 
 import { httpClient } from '../../api/http.client';

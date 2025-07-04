@@ -1,4 +1,4 @@
-import { TFindManyRisksResponse } from '1pd-types';
+import { TFindManyRisksResponse } from '@counselflow/types';
 import { useQuery } from '@tanstack/react-query';
 
 import { fetchWithPagination } from '@/entities/api/fetchWithPagination';

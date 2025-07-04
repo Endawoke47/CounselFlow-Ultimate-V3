@@ -1,4 +1,4 @@
-import { ICreateMatterRequest, IMatter, TPaginatedResponse } from '1pd-types';
+import { ICreateMatterRequest, IMatter, TPaginatedResponse } from '@counselflow/types';
 
 import { httpClient } from '../../api/http.client';
 

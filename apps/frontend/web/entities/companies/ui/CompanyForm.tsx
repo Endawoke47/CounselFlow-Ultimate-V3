@@ -1,4 +1,4 @@
-import { ICompany } from '1pd-types';
+import { ICompany } from '@counselflow/types';
 import { yupResolver } from '@hookform/resolvers/yup';
 import { Link } from '@tanstack/react-router';
 import React, { FC } from 'react';

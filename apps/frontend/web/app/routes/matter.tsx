@@ -2,13 +2,13 @@ import { createRoute } from '@tanstack/react-router';
 
 import { Route as rootRoute } from '@/app/routes/__root';
 import { AddMatterPage } from '@/pages/Matters/AddMatterPage';
-import { MattersPage } from '@/pages/Matters/MattersPage';
+import MattersListPage from '@/pages/Matters/MattersListPage';
 import { UpdateMatterPage } from '@/pages/Matters/UpdateMatterPage';
 
 export const Route = createRoute({
   getParentRoute: () => rootRoute,
   path: '/matters',
-  component: MattersPage,
+  component: MattersListPage,
 });
 
 export const addMatterRoute = createRoute({

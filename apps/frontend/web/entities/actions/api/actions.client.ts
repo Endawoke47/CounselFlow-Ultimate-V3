@@ -1,4 +1,4 @@
-import { IAction, TCreateActionRequest, TCreateActionResponse, TPaginatedResponse } from '1pd-types';
+import { IAction, TCreateActionRequest, TCreateActionResponse, TPaginatedResponse } from '@counselflow/types';
 
 import { httpClient } from '../../api/http.client';
 

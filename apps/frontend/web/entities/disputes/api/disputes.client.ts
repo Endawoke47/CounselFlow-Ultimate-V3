@@ -1,6 +1,6 @@
 import { httpClient } from '@/entities/api/http.client';
 import { APP_ROUTES } from '@/entities/api/routes';
-import { TPaginatedResponse } from '1pd-types';
+import { TPaginatedResponse } from '@counselflow/types';
 
 export const disputesClient = {
   getDisputes: async () => {

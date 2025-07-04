@@ -7,7 +7,7 @@ import {
   RiskTolerance,
   TCreateRiskRequest,
   TUpdateRiskRequest,
-} from '1pd-types';
+} from '@counselflow/types';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { useEffect } from 'react';
 import { Controller, useForm } from 'react-hook-form';

@@ -1,4 +1,4 @@
-import { IContract } from '1pd-types';
+import { IContract } from '@counselflow/types';
 
 export const contractToForm = (contract: IContract) => {
   return {

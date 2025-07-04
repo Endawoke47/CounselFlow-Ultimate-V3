@@ -1,4 +1,4 @@
-import { ActionPriority } from '1pd-types';
+import { ActionPriority } from '@counselflow/types';
 import { FC } from 'react';
 import { ControllerRenderProps } from 'react-hook-form';
 

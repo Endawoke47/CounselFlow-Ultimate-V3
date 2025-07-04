@@ -1,4 +1,4 @@
-import { TCreateRiskRequest, TUpdateRiskRequest } from '1pd-types';
+import { TCreateRiskRequest, TUpdateRiskRequest } from '@counselflow/types';
 import { Link, useNavigate } from '@tanstack/react-router';
 import { useState } from 'react';
 

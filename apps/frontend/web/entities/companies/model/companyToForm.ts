@@ -1,4 +1,4 @@
-import { ICompany } from '1pd-types';
+import { ICompany } from '@counselflow/types';
 
 export const companyToForm = (company: ICompany) => {
   return {

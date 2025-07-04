@@ -1,4 +1,4 @@
-import { TUpdateRiskRequest } from '1pd-types';
+import { TUpdateRiskRequest } from '@counselflow/types';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useNavigate } from '@tanstack/react-router';
 

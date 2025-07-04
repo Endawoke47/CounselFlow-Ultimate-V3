@@ -1,4 +1,4 @@
-import { IMatter } from '1pd-types';
+import { IMatter } from '@counselflow/types';
 import { useQuery } from '@tanstack/react-query';
 
 import { mattersClient } from '@/entities/matters/api/matters.client';

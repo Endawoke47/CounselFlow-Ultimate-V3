@@ -2,7 +2,7 @@ import {
   IContract,
   ICreateContractRequest, IUpdateContractRequest,
   TPaginatedResponse,
-} from '1pd-types';
+} from '@counselflow/types';
 
 import { httpClient } from '../../api/http.client';
 

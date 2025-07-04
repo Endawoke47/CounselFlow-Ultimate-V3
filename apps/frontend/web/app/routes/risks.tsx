@@ -3,9 +3,9 @@ import { createRoute } from '@tanstack/react-router';
 import {
   DeleteRiskPage,
   DisplayRiskPage,
-  ListRiskPage,
   ManageRiskPage,
 } from '../../pages/Risks';
+import RiskManagementPage from '@/pages/Risks/RiskManagementPage';
 
 import { Route as rootRoute } from '@/app/routes/__root';
 
@@ -13,7 +13,7 @@ import { Route as rootRoute } from '@/app/routes/__root';
 export const listRisksRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/risks',
-  component: ListRiskPage,
+  component: RiskManagementPage,
 });
 
 // Create new risk route

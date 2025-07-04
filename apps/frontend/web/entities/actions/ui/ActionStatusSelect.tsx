@@ -1,4 +1,4 @@
-import { ActionStatus } from '1pd-types';
+import { ActionStatus } from '@counselflow/types';
 import { FC } from 'react';
 import { ControllerRenderProps } from 'react-hook-form';
 

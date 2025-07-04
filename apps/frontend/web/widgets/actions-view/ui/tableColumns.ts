@@ -1,4 +1,4 @@
-import { TCreateActionResponse } from '1pd-types';
+import { TCreateActionResponse } from '@counselflow/types';
 import { ColDef } from 'ag-grid-community';
 
 import { EditButtonCellRenderer } from '@/shared/ui/EditButtonCellRenderer';

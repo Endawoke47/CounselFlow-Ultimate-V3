@@ -1,4 +1,4 @@
-import { TRiskResponse } from '1pd-types';
+import { TRiskResponse } from '@counselflow/types';
 import { FC } from 'react';
 import { ControllerRenderProps } from 'react-hook-form';
 

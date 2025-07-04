@@ -2,13 +2,13 @@ import { createRoute } from '@tanstack/react-router';
 
 import { Route as rootRoute } from '@/app/routes/__root';
 import { AddCompanyPage } from '@/pages/Companies/AddCompanyPage';
-import { CompaniesPage } from '@/pages/Companies/CompaniesPage';
+import CompaniesListPage from '@/pages/Companies/CompaniesListPage';
 import { UpdateCompanyPage } from '@/pages/Companies/UpdateCompanyPage';
 
 export const Route = createRoute({
   getParentRoute: () => rootRoute,
   path: '/companies',
-  component: CompaniesPage,
+  component: CompaniesListPage,
 });
 
 export const addCompanyRoute = createRoute({

@@ -1,4 +1,4 @@
-import { IAction } from '1pd-types';
+import { IAction } from '@counselflow/types';
 
 export const actionToForm = (action: IAction) => {
   return {

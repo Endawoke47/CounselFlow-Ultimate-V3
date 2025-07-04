@@ -1,14 +1,14 @@
 import { createRoute } from '@tanstack/react-router';
 
 import { Route as rootRoute } from '@/app/routes/__root';
-import ActionsPage from '@/pages/Actions/ActionsPage';
+import ActionsListPage from '@/pages/Actions/ActionsListPage';
 import { AddActionPage } from '@/pages/Actions/AddActionPage';
 import { UpdateActionPage } from '@/pages/Actions/UpdateActionPage';
 
 export const Route = createRoute({
   getParentRoute: () => rootRoute,
   path: '/actions',
-  component: ActionsPage,
+  component: ActionsListPage,
 });
 
 export const addActionsRoute = createRoute({

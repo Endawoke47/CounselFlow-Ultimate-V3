@@ -1,4 +1,4 @@
-import { ICompany } from '1pd-types';
+import { ICompany } from '@counselflow/types';
 import { ColDef } from 'ag-grid-community';
 
 import { EditButtonCellRenderer } from '@/shared/ui/EditButtonCellRenderer';

@@ -1,4 +1,4 @@
-import { TCreateActionRequest } from '1pd-types';
+import { TCreateActionRequest } from '@counselflow/types';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useNavigate } from '@tanstack/react-router';
 import { toast } from 'react-toastify';

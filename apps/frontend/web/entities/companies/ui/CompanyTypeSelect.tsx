@@ -1,4 +1,4 @@
-import { CompanyAccountType } from '1pd-types';
+import { CompanyAccountType } from '@counselflow/types';
 import { FC } from 'react';
 import { ControllerRenderProps } from 'react-hook-form';
 

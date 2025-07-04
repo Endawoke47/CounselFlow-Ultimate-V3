@@ -1,4 +1,4 @@
-import { TRiskResponse } from '1pd-types';
+import { TRiskResponse } from '@counselflow/types';
 import { useQuery } from '@tanstack/react-query';
 
 import { risksClient } from '@/entities/actions/risks.client';

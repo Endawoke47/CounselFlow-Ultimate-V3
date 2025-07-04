@@ -446,28 +446,4 @@ export interface WebhookEvent {
   data: Record<string, unknown>;
 }
 
-// Export all types for easy importing
-export type {
-  BaseEntity,
-  User,
-  Contract,
-  Matter,
-  Task,
-  Entity,
-  Dispute,
-  DocumentReference,
-  RiskAssessment,
-  Address,
-  Contact,
-  DisputeEvent,
-  DashboardMetrics,
-  ChartData,
-  ApiResponse,
-  PaginatedResponse,
-  FormValidationError,
-  FormState,
-  SearchFilters,
-  SortConfig,
-  Notification,
-  WebhookEvent
-};
+// All types are already exported individually above

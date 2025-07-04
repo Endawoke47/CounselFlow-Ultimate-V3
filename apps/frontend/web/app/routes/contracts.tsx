@@ -2,13 +2,13 @@ import { createRoute } from '@tanstack/react-router';
 
 import { Route as rootRoute } from '@/app/routes/__root';
 import { AddContractPage } from '@/pages/Contracts/AddContractPage';
-import { ContractsPage } from '@/pages/Contracts/ContractsPage';
+import ContractsListPage from '@/pages/Contracts/ContractsListPage';
 import { UpdateContractPage } from '@/pages/Contracts/UpdateContractPage';
 
 export const Route = createRoute({
   getParentRoute: () => rootRoute,
   path: '/contracts',
-  component: ContractsPage,
+  component: ContractsListPage,
 });
 
 export const addContractRoute = createRoute({

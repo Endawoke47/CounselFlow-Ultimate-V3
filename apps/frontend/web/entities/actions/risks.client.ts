@@ -5,7 +5,7 @@ import {
   TRiskResponse,
   TUpdateRiskRequest,
   TUpdateRiskResponse
-} from '1pd-types';
+} from '@counselflow/types';
 
 import { httpClient } from '@/entities/api/http.client';
 import { APP_ROUTES } from '@/entities/api/routes';

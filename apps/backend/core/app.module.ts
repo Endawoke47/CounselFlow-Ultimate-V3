@@ -6,7 +6,9 @@ import { HttpErrorFilter } from './common/filters/http-exception.filter';
 import { AccountsModule } from './modules/accounts/accounts.module';
 import { ActionsModule } from './modules/actions/actions.module';
 import { AdminModule } from './modules/admin/admin.module';
+import { AIModule } from './modules/ai/ai.module';
 import { AuthModule } from './modules/auth/auth.module';
+import { SecurityModule } from './modules/security/security.module';
 import { Auth0Module } from './modules/auth0/auth0.module';
 import { CategoriesModule } from './modules/categories/categories.module';
 import { CommentsModule } from './modules/comments/comments.module';
@@ -29,6 +31,8 @@ import { configService } from './services/config.service';
     AuthModule,
     UsersModule,
     Auth0Module,
+    AIModule,
+    SecurityModule,
     GeoModule,
     CompaniesModule,
     AccountsModule,

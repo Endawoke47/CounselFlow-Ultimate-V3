@@ -1,4 +1,4 @@
-import { IMatter } from '1pd-types';
+import { IMatter } from '@counselflow/types';
 import { yupResolver } from '@hookform/resolvers/yup';
 import { Link } from '@tanstack/react-router';
 import { PlusIcon } from 'lucide-react';
