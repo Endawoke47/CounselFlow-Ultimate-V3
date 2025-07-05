@@ -1,0 +1,1349 @@
+// =============================================================================
+// CounselFlow Ultimate V3 - Comprehensive Database Schema
+// AI-Powered Enterprise Legal Management Platform
+// =============================================================================
+
+generator client {
+  provider = "prisma-client-py"
+  interface = "asyncio"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// =============================================================================
+// USER MANAGEMENT & AUTHENTICATION
+// =============================================================================
+
+enum UserRole {
+  ADMIN                 // Full system access + settings
+  IN_HOUSE_COUNSEL     // All modules except admin
+  LEGAL_OPS            // Workflows + KPIs access
+  EXTERNAL_COUNSEL     // Matter-specific access
+  BUSINESS_STAKEHOLDER // Limited view access
+  CLIENT               // Client portal access
+}
+
+enum UserStatus {
+  ACTIVE
+  INACTIVE
+  SUSPENDED
+  PENDING_VERIFICATION
+}
+
+model User {
+  id            String     @id @default(uuid())
+  email         String     @unique
+  firstName     String     @map("first_name")
+  lastName      String     @map("last_name")
+  role          UserRole   @default(IN_HOUSE_COUNSEL)
+  status        UserStatus @default(PENDING_VERIFICATION)
+  hashedPassword String?   @map("hashed_password")
+  
+  // Profile fields
+  title         String?
+  department    String?
+  phone         String?
+  timezone      String?    @default("UTC")
+  
+  // Security & audit
+  lastLogin     DateTime?  @map("last_login")
+  loginAttempts Int        @default(0) @map("login_attempts")
+  lockedUntil   DateTime?  @map("locked_until")
+  
+  // Timestamps
+  createdAt     DateTime   @default(now()) @map("created_at")
+  updatedAt     DateTime   @updatedAt @map("updated_at")
+  deletedAt     DateTime?  @map("deleted_at")
+  
+  // Relationships
+  createdContracts Contract[] @relation("ContractCreator")
+  assignedMatters  Matter[]   @relation("MatterAssignee")
+  createdMatters   Matter[]   @relation("MatterCreator")
+  auditLogs        AuditLog[]
+  riskEvents       RiskEvent[] @relation("RiskCreator")
+  disputeCases     Dispute[]  @relation("DisputeAssignee")
+  piaAssessments   PIA[]      @relation("PIACreator")
+  
+  @@map("users")
+}
+
+// =============================================================================
+// CLIENT MANAGEMENT
+// =============================================================================
+
+enum ClientType {
+  CORPORATE
+  INDIVIDUAL
+  STARTUP
+  ENTERPRISE
+  NON_PROFIT
+  GOVERNMENT
+}
+
+enum ClientStatus {
+  ACTIVE
+  INACTIVE
+  PROSPECT
+  FORMER_CLIENT
+}
+
+model Client {
+  id              String       @id @default(uuid())
+  name            String
+  type            ClientType
+  status          ClientStatus @default(ACTIVE)
+  
+  // Contact information
+  contactPerson   String?      @map("contact_person")
+  email           String?
+  phone           String?
+  website         String?
+  
+  // Address
+  addressLine1    String?      @map("address_line1")
+  addressLine2    String?      @map("address_line2")
+  city            String?
+  state           String?
+  postalCode      String?      @map("postal_code")
+  country         String?      @default("US")
+  
+  // Business details
+  industry        String?
+  revenue         Decimal?     @db.Decimal(15,2)
+  employeeCount   Int?         @map("employee_count")
+  
+  // Timestamps
+  createdAt       DateTime     @default(now()) @map("created_at")
+  updatedAt       DateTime     @updatedAt @map("updated_at")
+  deletedAt       DateTime?    @map("deleted_at")
+  
+  // Relationships
+  matters         Matter[]
+  contracts       Contract[]
+  ipAssets        IPAsset[]
+  disputes        Dispute[]
+  privacyEvents   PrivacyEvent[]
+  
+  @@map("clients")
+}
+
+// =============================================================================
+// CONTRACT LIFECYCLE MANAGEMENT
+// =============================================================================
+
+enum ContractType {
+  NDA
+  MSA                    // Master Service Agreement
+  EMPLOYMENT
+  LICENSING
+  PARTNERSHIP
+  VENDOR_AGREEMENT
+  CONSULTING
+  LEASE
+  PURCHASE_ORDER
+  SOFTWARE_LICENSE
+  DATA_PROCESSING
+  CUSTOM
+}
+
+enum ContractStatus {
+  DRAFT
+  UNDER_REVIEW
+  PENDING_APPROVAL
+  PENDING_SIGNATURE
+  EXECUTED
+  EXPIRED
+  TERMINATED
+  CANCELLED
+}
+
+enum RiskLevel {
+  LOW
+  MEDIUM
+  HIGH
+  CRITICAL
+}
+
+model Contract {
+  id              String         @id @default(uuid())
+  title           String
+  type            ContractType
+  status          ContractStatus @default(DRAFT)
+  
+  // Parties
+  clientId        String         @map("client_id")
+  counterparty    String?        // External party name
+  
+  // Content & analysis
+  content         String?        @db.Text
+  aiRiskScore     Float?         @map("ai_risk_score") @db.Real
+  riskLevel       RiskLevel?     @map("risk_level")
+  aiSummary       String?        @map("ai_summary") @db.Text
+  
+  // Financial terms
+  value           Decimal?       @db.Decimal(15,2)
+  currency        String?        @default("USD")
+  
+  // Dates
+  effectiveDate   DateTime?      @map("effective_date")
+  expirationDate  DateTime?      @map("expiration_date")
+  signedDate      DateTime?      @map("signed_date")
+  
+  // Document management
+  documentUrl     String?        @map("document_url")
+  documentHash    String?        @map("document_hash") // SHA256 for integrity
+  signatureStatus String?        @map("signature_status")
+  
+  // Metadata
+  priority        String?        @default("MEDIUM")
+  tags            String[]       @default([])
+  
+  // Audit fields
+  createdById     String         @map("created_by_id")
+  matterId        String?        @map("matter_id")
+  
+  // Timestamps
+  createdAt       DateTime       @default(now()) @map("created_at")
+  updatedAt       DateTime       @updatedAt @map("updated_at")
+  deletedAt       DateTime?      @map("deleted_at")
+  
+  // Relationships
+  client          Client         @relation(fields: [clientId], references: [id])
+  createdBy       User           @relation("ContractCreator", fields: [createdById], references: [id])
+  matter          Matter?        @relation(fields: [matterId], references: [id])
+  clauses         Clause[]
+  obligations     Obligation[]
+  timelineEvents  TimelineEvent[]
+  
+  @@map("contracts")
+}
+
+model Clause {
+  id                String     @id @default(uuid())
+  contractId        String     @map("contract_id")
+  text              String     @db.Text
+  clauseType        String     @map("clause_type")
+  riskRating        RiskLevel? @map("risk_rating")
+  suggestedRevision String?    @map("suggested_revision") @db.Text
+  source            String?    // Template source or AI generated
+  position          Int        // Order in contract
+  
+  // Timestamps
+  createdAt         DateTime   @default(now()) @map("created_at")
+  updatedAt         DateTime   @updatedAt @map("updated_at")
+  
+  // Relationships
+  contract          Contract   @relation(fields: [contractId], references: [id], onDelete: Cascade)
+  
+  @@map("clauses")
+}
+
+enum ObligationType {
+  PAYMENT
+  DELIVERY
+  COMPLIANCE
+  REPORTING
+  RENEWAL
+  TERMINATION
+  INSURANCE
+  CONFIDENTIALITY
+  CUSTOM
+}
+
+enum ObligationStatus {
+  PENDING
+  IN_PROGRESS
+  COMPLETED
+  OVERDUE
+  WAIVED
+}
+
+model Obligation {
+  id           String            @id @default(uuid())
+  contractId   String            @map("contract_id")
+  type         ObligationType
+  status       ObligationStatus  @default(PENDING)
+  title        String
+  description  String?           @db.Text
+  responsible  String            // Party responsible
+  dueDate      DateTime?         @map("due_date")
+  completedAt  DateTime?         @map("completed_at")
+  
+  // Timestamps
+  createdAt    DateTime          @default(now()) @map("created_at")
+  updatedAt    DateTime          @updatedAt @map("updated_at")
+  
+  // Relationships
+  contract     Contract          @relation(fields: [contractId], references: [id], onDelete: Cascade)
+  
+  @@map("obligations")
+}
+
+enum TimelineEventType {
+  CREATED
+  SENT_FOR_REVIEW
+  APPROVED
+  REJECTED
+  SIGNED
+  EXECUTED
+  AMENDED
+  RENEWED
+  TERMINATED
+  AI_ANALYSIS_COMPLETED
+  RISK_FLAGGED
+  CUSTOM
+}
+
+model TimelineEvent {
+  id          String            @id @default(uuid())
+  contractId  String            @map("contract_id")
+  eventType   TimelineEventType @map("event_type")
+  title       String
+  description String?           @db.Text
+  metadata    Json?             // Additional event data
+  
+  // Timestamps
+  createdAt   DateTime          @default(now()) @map("created_at")
+  
+  // Relationships
+  contract    Contract          @relation(fields: [contractId], references: [id], onDelete: Cascade)
+  
+  @@map("timeline_events")
+}
+
+// =============================================================================
+// INTELLECTUAL PROPERTY MANAGEMENT
+// =============================================================================
+
+enum IPAssetType {
+  PATENT
+  TRADEMARK
+  COPYRIGHT
+  TRADE_SECRET
+  DOMAIN
+  DESIGN
+}
+
+enum IPStatus {
+  IDEA
+  DISCLOSURE_FILED
+  APPLICATION_FILED
+  UNDER_EXAMINATION
+  GRANTED
+  PUBLISHED
+  ABANDONED
+  EXPIRED
+  LICENSED
+}
+
+model IPAsset {
+  id              String    @id @default(uuid())
+  title           String
+  type            IPAssetType
+  status          IPStatus
+  
+  // Identification
+  applicationNumber String? @map("application_number")
+  registrationNumber String? @map("registration_number")
+  
+  // Content
+  description     String?   @db.Text
+  claims          String?   @db.Text
+  inventors       String[]  @default([])
+  
+  // Legal details
+  jurisdiction    String[]  @default(["US"])
+  priorityDate    DateTime? @map("priority_date")
+  filingDate      DateTime? @map("filing_date")
+  publicationDate DateTime? @map("publication_date")
+  grantDate       DateTime? @map("grant_date")
+  expirationDate  DateTime? @map("expiration_date")
+  
+  // Business value
+  clientId        String    @map("client_id")
+  estimatedValue  Decimal?  @map("estimated_value") @db.Decimal(15,2)
+  maintenanceFees Decimal?  @map("maintenance_fees") @db.Decimal(10,2)
+  
+  // AI analysis
+  priorArtScore   Float?    @map("prior_art_score") @db.Real
+  strengthScore   Float?    @map("strength_score") @db.Real
+  
+  // Timestamps
+  createdAt       DateTime  @default(now()) @map("created_at")
+  updatedAt       DateTime  @updatedAt @map("updated_at")
+  deletedAt       DateTime? @map("deleted_at")
+  
+  // Relationships
+  client          Client    @relation(fields: [clientId], references: [id])
+  filings         Filing[]
+  licenses        License[]
+  
+  @@map("ip_assets")
+}
+
+enum FilingStatus {
+  PENDING
+  FILED
+  UNDER_EXAMINATION
+  GRANTED
+  REJECTED
+  ABANDONED
+}
+
+model Filing {
+  id              String      @id @default(uuid())
+  ipAssetId       String      @map("ip_asset_id")
+  jurisdiction    String
+  status          FilingStatus
+  filingDate      DateTime    @map("filing_date")
+  docketNumber    String?     @map("docket_number")
+  attorney        String?
+  fees            Decimal?    @db.Decimal(10,2)
+  deadlines       Json?       // Array of deadline objects
+  
+  // Timestamps
+  createdAt       DateTime    @default(now()) @map("created_at")
+  updatedAt       DateTime    @updatedAt @map("updated_at")
+  
+  // Relationships
+  ipAsset         IPAsset     @relation(fields: [ipAssetId], references: [id], onDelete: Cascade)
+  
+  @@map("filings")
+}
+
+enum LicenseType {
+  EXCLUSIVE
+  NON_EXCLUSIVE
+  SOLE
+  CROSS_LICENSE
+}
+
+model License {
+  id            String      @id @default(uuid())
+  ipAssetId     String      @map("ip_asset_id")
+  licensee      String      // Company/person receiving license
+  type          LicenseType
+  
+  // Terms
+  startDate     DateTime    @map("start_date")
+  endDate       DateTime?   @map("end_date")
+  royaltyRate   Float?      @map("royalty_rate") @db.Real
+  upfrontFee    Decimal?    @map("upfront_fee") @db.Decimal(15,2)
+  territory     String[]    @default([])
+  
+  // Status
+  isActive      Boolean     @default(true) @map("is_active")
+  
+  // Timestamps
+  createdAt     DateTime    @default(now()) @map("created_at")
+  updatedAt     DateTime    @updatedAt @map("updated_at")
+  
+  // Relationships
+  ipAsset       IPAsset     @relation(fields: [ipAssetId], references: [id], onDelete: Cascade)
+  
+  @@map("licenses")
+}
+
+// =============================================================================
+// MATTER MANAGEMENT
+// =============================================================================
+
+enum MatterType {
+  LITIGATION
+  COMPLIANCE
+  CORPORATE
+  EMPLOYMENT
+  IP_ENFORCEMENT
+  REGULATORY
+  INVESTIGATION
+  MERGER_ACQUISITION
+  REAL_ESTATE
+  TAX
+  BANKRUPTCY
+  IMMIGRATION
+  ENVIRONMENTAL
+  CUSTOM
+}
+
+enum MatterStatus {
+  OPEN
+  ACTIVE
+  ON_HOLD
+  CLOSED
+  CANCELLED
+  PENDING_APPROVAL
+}
+
+enum MatterPriority {
+  LOW
+  MEDIUM
+  HIGH
+  URGENT
+}
+
+model Matter {
+  id              String        @id @default(uuid())
+  title           String
+  description     String?       @db.Text
+  type            MatterType
+  status          MatterStatus  @default(OPEN)
+  priority        MatterPriority @default(MEDIUM)
+  
+  // Client relationship
+  clientId        String        @map("client_id")
+  
+  // Financial tracking
+  budget          Decimal?      @db.Decimal(15,2)
+  spentAmount     Decimal?      @map("spent_amount") @db.Decimal(15,2) @default(0)
+  billingRate     Decimal?      @map("billing_rate") @db.Decimal(8,2)
+  
+  // Timeline
+  startDate       DateTime      @map("start_date") @default(now())
+  targetCloseDate DateTime?     @map("target_close_date")
+  actualCloseDate DateTime?     @map("actual_close_date")
+  
+  // Assignment
+  assignedToId    String?       @map("assigned_to_id")
+  createdById     String        @map("created_by_id")
+  
+  // External counsel
+  externalFirm    String?       @map("external_firm")
+  externalContact String?       @map("external_contact")
+  
+  // AI insights
+  aiSummary       String?       @map("ai_summary") @db.Text
+  similarMatters  String[]      @map("similar_matters") @default([])
+  suggestedBudget Decimal?      @map("suggested_budget") @db.Decimal(15,2)
+  
+  // Metadata
+  tags            String[]      @default([])
+  
+  // Timestamps
+  createdAt       DateTime      @default(now()) @map("created_at")
+  updatedAt       DateTime      @updatedAt @map("updated_at")
+  deletedAt       DateTime?     @map("deleted_at")
+  
+  // Relationships
+  client          Client        @relation(fields: [clientId], references: [id])
+  assignedTo      User?         @relation("MatterAssignee", fields: [assignedToId], references: [id])
+  createdBy       User          @relation("MatterCreator", fields: [createdById], references: [id])
+  contracts       Contract[]
+  documents       Document[]
+  tasks           Task[]
+  disputes        Dispute[]
+  
+  @@map("matters")
+}
+
+// =============================================================================
+// TASK & WORKFLOW MANAGEMENT
+// =============================================================================
+
+enum TaskType {
+  RESEARCH
+  DRAFTING
+  REVIEW
+  FILING
+  COURT_APPEARANCE
+  CLIENT_MEETING
+  DEADLINE
+  FOLLOW_UP
+  CUSTOM
+}
+
+enum TaskStatus {
+  NOT_STARTED
+  IN_PROGRESS
+  UNDER_REVIEW
+  COMPLETED
+  CANCELLED
+  OVERDUE
+}
+
+enum TaskPriority {
+  LOW
+  MEDIUM
+  HIGH
+  URGENT
+}
+
+model Task {
+  id            String       @id @default(uuid())
+  title         String
+  description   String?      @db.Text
+  type          TaskType
+  status        TaskStatus   @default(NOT_STARTED)
+  priority      TaskPriority @default(MEDIUM)
+  
+  // Assignment
+  matterId      String?      @map("matter_id")
+  assignedToId  String?      @map("assigned_to_id")
+  
+  // Timeline
+  dueDate       DateTime?    @map("due_date")
+  startDate     DateTime?    @map("start_date")
+  completedAt   DateTime?    @map("completed_at")
+  estimatedHours Float?      @map("estimated_hours") @db.Real
+  actualHours   Float?       @map("actual_hours") @db.Real
+  
+  // Dependencies
+  dependsOn     String[]     @map("depends_on") @default([])
+  blocks        String[]     @default([])
+  
+  // Metadata
+  tags          String[]     @default([])
+  
+  // Timestamps
+  createdAt     DateTime     @default(now()) @map("created_at")
+  updatedAt     DateTime     @updatedAt @map("updated_at")
+  deletedAt     DateTime?    @map("deleted_at")
+  
+  // Relationships
+  matter        Matter?      @relation(fields: [matterId], references: [id])
+  
+  @@map("tasks")
+}
+
+// =============================================================================
+// DOCUMENT MANAGEMENT
+// =============================================================================
+
+enum DocumentType {
+  CONTRACT
+  BRIEF
+  MEMO
+  CORRESPONDENCE
+  FILING
+  EVIDENCE
+  RESEARCH
+  PLEADING
+  MOTION
+  ORDER
+  AGREEMENT
+  POLICY
+  CUSTOM
+}
+
+enum DocumentStatus {
+  DRAFT
+  UNDER_REVIEW
+  APPROVED
+  FINAL
+  ARCHIVED
+}
+
+model Document {
+  id              String          @id @default(uuid())
+  title           String
+  description     String?         @db.Text
+  type            DocumentType
+  status          DocumentStatus  @default(DRAFT)
+  
+  // File information
+  fileName        String          @map("file_name")
+  filePath        String          @map("file_path")
+  fileSize        Int             @map("file_size")
+  mimeType        String          @map("mime_type")
+  fileHash        String          @map("file_hash") // SHA256
+  
+  // Content analysis
+  content         String?         @db.Text // Extracted text
+  aiSummary       String?         @map("ai_summary") @db.Text
+  keyTerms        String[]        @map("key_terms") @default([])
+  
+  // Classification
+  matterId        String?         @map("matter_id")
+  clientId        String?         @map("client_id")
+  isPrivileged    Boolean         @map("is_privileged") @default(false)
+  confidentialityLevel String?    @map("confidentiality_level")
+  
+  // Version control
+  version         String          @default("1.0")
+  parentDocId     String?         @map("parent_doc_id")
+  
+  // Metadata
+  tags            String[]        @default([])
+  
+  // Timestamps
+  createdAt       DateTime        @default(now()) @map("created_at")
+  updatedAt       DateTime        @updatedAt @map("updated_at")
+  deletedAt       DateTime?       @map("deleted_at")
+  
+  // Relationships
+  matter          Matter?         @relation(fields: [matterId], references: [id])
+  parentDoc       Document?       @relation("DocumentVersions", fields: [parentDocId], references: [id])
+  versions        Document[]      @relation("DocumentVersions")
+  
+  @@map("documents")
+}
+
+// =============================================================================
+// RISK & COMPLIANCE MANAGEMENT
+// =============================================================================
+
+enum RiskType {
+  LEGAL
+  REGULATORY
+  FINANCIAL
+  OPERATIONAL
+  REPUTATIONAL
+  CYBERSECURITY
+  PRIVACY
+  IP_INFRINGEMENT
+  CONTRACT_BREACH
+  LITIGATION
+  COMPLIANCE
+  CUSTOM
+}
+
+enum RiskStatus {
+  IDENTIFIED
+  UNDER_ASSESSMENT
+  MITIGATION_PLANNED
+  MITIGATION_IN_PROGRESS
+  MITIGATED
+  ACCEPTED
+  CLOSED
+}
+
+model RiskEvent {
+  id              String      @id @default(uuid())
+  title           String
+  description     String      @db.Text
+  type            RiskType
+  status          RiskStatus  @default(IDENTIFIED)
+  
+  // Risk assessment
+  likelihood      Int         // 1-5 scale
+  impact          Int         // 1-5 scale
+  riskScore       Float       @map("risk_score") @db.Real // Calculated: likelihood * impact
+  
+  // Financial impact
+  potentialLoss   Decimal?    @map("potential_loss") @db.Decimal(15,2)
+  mitigationCost  Decimal?    @map("mitigation_cost") @db.Decimal(15,2)
+  
+  // Timeline
+  identifiedDate  DateTime    @map("identified_date") @default(now())
+  targetMitigationDate DateTime? @map("target_mitigation_date")
+  actualMitigationDate DateTime? @map("actual_mitigation_date")
+  
+  // Assignment
+  createdById     String      @map("created_by_id")
+  ownerId         String?     @map("owner_id")
+  
+  // Mitigation
+  mitigationPlan  String?     @map("mitigation_plan") @db.Text
+  mitigationStatus String?    @map("mitigation_status")
+  
+  // Relationships
+  clientId        String?     @map("client_id")
+  matterId        String?     @map("matter_id")
+  
+  // AI analysis
+  aiInsights      String?     @map("ai_insights") @db.Text
+  
+  // Metadata
+  tags            String[]    @default([])
+  
+  // Timestamps
+  createdAt       DateTime    @default(now()) @map("created_at")
+  updatedAt       DateTime    @updatedAt @map("updated_at")
+  deletedAt       DateTime?   @map("deleted_at")
+  
+  // Relationships
+  createdBy       User        @relation("RiskCreator", fields: [createdById], references: [id])
+  
+  @@map("risk_events")
+}
+
+enum ComplianceRequirementType {
+  GDPR
+  CCPA
+  HIPAA
+  SOX
+  PCI_DSS
+  FERPA
+  COPPA
+  ISO27001
+  SOC2
+  CUSTOM
+}
+
+enum ComplianceStatus {
+  NOT_APPLICABLE
+  NOT_COMPLIANT
+  PARTIALLY_COMPLIANT
+  COMPLIANT
+  UNDER_REVIEW
+  EXEMPTED
+}
+
+model ComplianceRequirement {
+  id              String                    @id @default(uuid())
+  title           String
+  description     String                    @db.Text
+  type            ComplianceRequirementType
+  status          ComplianceStatus          @default(NOT_COMPLIANT)
+  
+  // Regulatory details
+  regulation      String
+  section         String?
+  jurisdiction    String[]                  @default(["US"])
+  
+  // Implementation
+  requirements    String                    @db.Text
+  evidence        String?                   @db.Text
+  gaps            String?                   @db.Text
+  
+  // Timeline
+  dueDate         DateTime?                 @map("due_date")
+  reviewDate      DateTime?                 @map("review_date")
+  lastAssessment  DateTime?                 @map("last_assessment")
+  
+  // Assignment
+  ownerId         String?                   @map("owner_id")
+  
+  // Metadata
+  tags            String[]                  @default([])
+  
+  // Timestamps
+  createdAt       DateTime                  @default(now()) @map("created_at")
+  updatedAt       DateTime                  @updatedAt @map("updated_at")
+  
+  @@map("compliance_requirements")
+}
+
+model IncidentReport {
+  id              String      @id @default(uuid())
+  title           String
+  description     String      @db.Text
+  severity        RiskLevel
+  
+  // Incident details
+  incidentDate    DateTime    @map("incident_date")
+  discoveredDate  DateTime    @map("discovered_date") @default(now())
+  reportedDate    DateTime    @map("reported_date") @default(now())
+  
+  // Impact
+  affectedSystems String[]    @map("affected_systems") @default([])
+  affectedUsers   Int?        @map("affected_users")
+  dataInvolved    Boolean     @map("data_involved") @default(false)
+  
+  // Response
+  initialResponse String?     @map("initial_response") @db.Text
+  rootCause       String?     @map("root_cause") @db.Text
+  remediation     String?     @db.Text
+  
+  // Status
+  isResolved      Boolean     @map("is_resolved") @default(false)
+  resolvedDate    DateTime?   @map("resolved_date")
+  
+  // Regulatory
+  mustReport      Boolean     @map("must_report") @default(false)
+  reportedToRegulator Boolean @map("reported_to_regulator") @default(false)
+  regulatorResponse String?   @map("regulator_response") @db.Text
+  
+  // Metadata
+  tags            String[]    @default([])
+  
+  // Timestamps
+  createdAt       DateTime    @default(now()) @map("created_at")
+  updatedAt       DateTime    @updatedAt @map("updated_at")
+  
+  @@map("incident_reports")
+}
+
+// =============================================================================
+// DATA PRIVACY & PIA
+// =============================================================================
+
+enum PIAStatus {
+  NOT_STARTED
+  IN_PROGRESS
+  UNDER_REVIEW
+  APPROVED
+  REJECTED
+  NEEDS_UPDATE
+}
+
+enum DataProcessingPurpose {
+  LEGITIMATE_INTEREST
+  CONTRACT_PERFORMANCE
+  LEGAL_OBLIGATION
+  CONSENT
+  VITAL_INTERESTS
+  PUBLIC_TASK
+}
+
+model PIA {
+  id                String                 @id @default(uuid())
+  title             String
+  description       String                 @db.Text
+  status            PIAStatus              @default(NOT_STARTED)
+  
+  // System details
+  systemName        String                 @map("system_name")
+  systemDescription String                 @map("system_description") @db.Text
+  dataController    String                 @map("data_controller")
+  dataProcessor     String?                @map("data_processor")
+  
+  // Data processing
+  dataTypes         String[]               @map("data_types") @default([])
+  processingPurpose DataProcessingPurpose  @map("processing_purpose")
+  legalBasis        String                 @map("legal_basis")
+  retentionPeriod   String                 @map("retention_period")
+  
+  // Risk assessment
+  privacyRisks      String                 @map("privacy_risks") @db.Text
+  mitigationMeasures String                @map("mitigation_measures") @db.Text
+  residualRisk      RiskLevel              @map("residual_risk")
+  
+  // Approval
+  createdById       String                 @map("created_by_id")
+  approvedById      String?                @map("approved_by_id")
+  approvedDate      DateTime?              @map("approved_date")
+  
+  // Timeline
+  reviewDate        DateTime?              @map("review_date")
+  expiryDate        DateTime?              @map("expiry_date")
+  
+  // AI assistance
+  aiGeneratedContent String?               @map("ai_generated_content") @db.Text
+  
+  // Metadata
+  tags              String[]               @default([])
+  
+  // Timestamps
+  createdAt         DateTime               @default(now()) @map("created_at")
+  updatedAt         DateTime               @updatedAt @map("updated_at")
+  
+  // Relationships
+  createdBy         User                   @relation("PIACreator", fields: [createdById], references: [id])
+  
+  @@map("pia_assessments")
+}
+
+enum DSRType {
+  ACCESS
+  PORTABILITY
+  RECTIFICATION
+  ERASURE
+  RESTRICTION
+  OBJECTION
+}
+
+enum DSRStatus {
+  RECEIVED
+  UNDER_REVIEW
+  IDENTITY_VERIFICATION_PENDING
+  IN_PROGRESS
+  COMPLETED
+  REJECTED
+  ESCALATED
+}
+
+model DataSubjectRequest {
+  id                String      @id @default(uuid())
+  type              DSRType
+  status            DSRStatus   @default(RECEIVED)
+  
+  // Requester details
+  requesterName     String      @map("requester_name")
+  requesterEmail    String      @map("requester_email")
+  requesterPhone    String?     @map("requester_phone")
+  
+  // Request details
+  description       String      @db.Text
+  dataCategories    String[]    @map("data_categories") @default([])
+  specificData      String?     @map("specific_data") @db.Text
+  
+  // Verification
+  identityVerified  Boolean     @map("identity_verified") @default(false)
+  verificationMethod String?    @map("verification_method")
+  verificationDate  DateTime?   @map("verification_date")
+  
+  // Processing
+  assignedToId      String?     @map("assigned_to_id")
+  response          String?     @db.Text
+  actionsTaken      String?     @map("actions_taken") @db.Text
+  
+  // Timeline (GDPR: 30 days)
+  receivedDate      DateTime    @map("received_date") @default(now())
+  dueDate           DateTime    @map("due_date")
+  completedDate     DateTime?   @map("completed_date")
+  
+  // Metadata
+  tags              String[]    @default([])
+  
+  // Timestamps
+  createdAt         DateTime    @default(now()) @map("created_at")
+  updatedAt         DateTime    @updatedAt @map("updated_at")
+  
+  @@map("data_subject_requests")
+}
+
+model PrivacyEvent {
+  id              String      @id @default(uuid())
+  title           String
+  description     String      @db.Text
+  eventType       String      @map("event_type") // breach, violation, audit, etc.
+  severity        RiskLevel
+  
+  // Details
+  clientId        String?     @map("client_id")
+  affectedRecords Int?        @map("affected_records")
+  dataTypes       String[]    @map("data_types") @default([])
+  
+  // Response
+  containmentActions String?  @map("containment_actions") @db.Text
+  notificationRequired Boolean @map("notification_required") @default(false)
+  regulatorNotified Boolean   @map("regulator_notified") @default(false)
+  individualsNotified Boolean @map("individuals_notified") @default(false)
+  
+  // Timeline
+  eventDate       DateTime    @map("event_date")
+  discoveredDate  DateTime    @map("discovered_date") @default(now())
+  
+  // Metadata
+  tags            String[]    @default([])
+  
+  // Timestamps
+  createdAt       DateTime    @default(now()) @map("created_at")
+  updatedAt       DateTime    @updatedAt @map("updated_at")
+  
+  // Relationships
+  client          Client?     @relation(fields: [clientId], references: [id])
+  
+  @@map("privacy_events")
+}
+
+// =============================================================================
+// DISPUTE RESOLUTION & LITIGATION
+// =============================================================================
+
+enum DisputeType {
+  CONTRACT_DISPUTE
+  IP_INFRINGEMENT
+  EMPLOYMENT_DISPUTE
+  REGULATORY_ENFORCEMENT
+  COMMERCIAL_LITIGATION
+  PRODUCT_LIABILITY
+  BREACH_OF_CONTRACT
+  NEGLIGENCE
+  ANTITRUST
+  SECURITIES
+  BANKRUPTCY
+  REAL_ESTATE
+  CUSTOM
+}
+
+enum DisputeStatus {
+  POTENTIAL
+  FILED
+  DISCOVERY
+  MEDIATION
+  ARBITRATION
+  TRIAL
+  APPEAL
+  SETTLED
+  DISMISSED
+  JUDGMENT
+  CLOSED
+}
+
+model Dispute {
+  id              String        @id @default(uuid())
+  title           String
+  description     String        @db.Text
+  type            DisputeType
+  status          DisputeStatus @default(POTENTIAL)
+  
+  // Parties
+  clientId        String        @map("client_id")
+  opposingParty   String        @map("opposing_party")
+  opposingCounsel String?       @map("opposing_counsel")
+  
+  // Case details
+  caseNumber      String?       @map("case_number")
+  court           String?
+  jurisdiction    String?
+  judge           String?
+  
+  // Financial
+  amountInDispute Decimal?      @map("amount_in_dispute") @db.Decimal(15,2)
+  estimatedCosts  Decimal?      @map("estimated_costs") @db.Decimal(15,2)
+  actualCosts     Decimal?      @map("actual_costs") @db.Decimal(15,2) @default(0)
+  
+  // External counsel
+  externalFirm    String?       @map("external_firm")
+  externalContact String?       @map("external_contact")
+  externalBudget  Decimal?      @map("external_budget") @db.Decimal(15,2)
+  
+  // Timeline
+  incidentDate    DateTime?     @map("incident_date")
+  filedDate       DateTime?     @map("filed_date")
+  discoveryDeadline DateTime?   @map("discovery_deadline")
+  trialDate       DateTime?     @map("trial_date")
+  
+  // Litigation hold
+  holdActive      Boolean       @map("hold_active") @default(false)
+  holdDate        DateTime?     @map("hold_date")
+  holdScope       String?       @map("hold_scope") @db.Text
+  
+  // Strategy & analysis
+  strategy        String?       @db.Text
+  strengths       String?       @db.Text
+  weaknesses      String?       @db.Text
+  aiInsights      String?       @map("ai_insights") @db.Text
+  outcomePredictor Float?       @map("outcome_predictor") @db.Real // AI prediction 0-1
+  
+  // Assignment
+  assignedToId    String?       @map("assigned_to_id")
+  matterId        String?       @map("matter_id")
+  
+  // Settlement
+  settlementAmount Decimal?     @map("settlement_amount") @db.Decimal(15,2)
+  settlementDate  DateTime?     @map("settlement_date")
+  settlementTerms String?       @map("settlement_terms") @db.Text
+  
+  // Metadata
+  tags            String[]      @default([])
+  
+  // Timestamps
+  createdAt       DateTime      @default(now()) @map("created_at")
+  updatedAt       DateTime      @updatedAt @map("updated_at")
+  deletedAt       DateTime?     @map("deleted_at")
+  
+  // Relationships
+  client          Client        @relation(fields: [clientId], references: [id])
+  assignedTo      User?         @relation("DisputeAssignee", fields: [assignedToId], references: [id])
+  matter          Matter?       @relation(fields: [matterId], references: [id])
+  
+  @@map("disputes")
+}
+
+// =============================================================================
+// AUDIT & SECURITY
+// =============================================================================
+
+enum AuditEventType {
+  LOGIN
+  LOGOUT
+  CREATE
+  READ
+  UPDATE
+  DELETE
+  EXPORT
+  IMPORT
+  PERMISSION_CHANGE
+  SYSTEM_CONFIG
+  AI_QUERY
+  FILE_ACCESS
+  SECURITY_EVENT
+}
+
+model AuditLog {
+  id            String         @id @default(uuid())
+  userId        String?        @map("user_id")
+  eventType     AuditEventType @map("event_type")
+  resource      String         // Table/endpoint accessed
+  resourceId    String?        @map("resource_id")
+  action        String
+  details       Json?          // Additional event details
+  ipAddress     String         @map("ip_address")
+  userAgent     String         @map("user_agent")
+  
+  // Security fields
+  sessionId     String?        @map("session_id")
+  success       Boolean        @default(true)
+  errorMessage  String?        @map("error_message")
+  
+  // Timestamps
+  timestamp     DateTime       @default(now())
+  
+  // Relationships
+  user          User?          @relation(fields: [userId], references: [id])
+  
+  @@map("audit_logs")
+}
+
+// =============================================================================
+// AI & AUTOMATION
+// =============================================================================
+
+enum AITaskType {
+  CONTRACT_ANALYSIS
+  DOCUMENT_GENERATION
+  LEGAL_RESEARCH
+  RISK_ASSESSMENT
+  COMPLIANCE_CHECK
+  DISPUTE_ANALYSIS
+  PIA_GENERATION
+  CLAUSE_EXTRACTION
+  DEADLINE_PREDICTION
+  COST_ESTIMATION
+}
+
+enum AITaskStatus {
+  QUEUED
+  PROCESSING
+  COMPLETED
+  FAILED
+  CANCELLED
+}
+
+model AITask {
+  id            String        @id @default(uuid())
+  type          AITaskType
+  status        AITaskStatus  @default(QUEUED)
+  
+  // Input
+  inputData     Json
+  parameters    Json?
+  
+  // Output
+  result        Json?
+  confidence    Float?        @db.Real
+  tokens        Int?          // Token usage
+  
+  // Processing
+  model         String        // GPT-4, Claude, Gemini, etc.
+  startedAt     DateTime?     @map("started_at")
+  completedAt   DateTime?     @map("completed_at")
+  processingTime Int?         @map("processing_time") // milliseconds
+  
+  // Error handling
+  errorMessage  String?       @map("error_message")
+  retryCount    Int           @map("retry_count") @default(0)
+  
+  // Relationships
+  userId        String?       @map("user_id")
+  
+  // Timestamps
+  createdAt     DateTime      @default(now()) @map("created_at")
+  updatedAt     DateTime      @updatedAt @map("updated_at")
+  
+  @@map("ai_tasks")
+}
+
+// =============================================================================
+// NOTIFICATIONS & COMMUNICATIONS
+// =============================================================================
+
+enum NotificationType {
+  DEADLINE_REMINDER
+  TASK_ASSIGNMENT
+  CONTRACT_EXPIRING
+  RISK_ALERT
+  COMPLIANCE_DUE
+  DISPUTE_UPDATE
+  SYSTEM_ALERT
+  AI_ANALYSIS_COMPLETE
+}
+
+enum NotificationStatus {
+  PENDING
+  SENT
+  DELIVERED
+  READ
+  FAILED
+}
+
+model Notification {
+  id          String             @id @default(uuid())
+  userId      String             @map("user_id")
+  type        NotificationType
+  status      NotificationStatus @default(PENDING)
+  
+  // Content
+  title       String
+  message     String             @db.Text
+  actionUrl   String?            @map("action_url")
+  
+  // Delivery
+  channels    String[]           @default(["IN_APP"]) // IN_APP, EMAIL, SMS
+  sentAt      DateTime?          @map("sent_at")
+  readAt      DateTime?          @map("read_at")
+  
+  // Metadata
+  metadata    Json?
+  
+  // Timestamps
+  createdAt   DateTime           @default(now()) @map("created_at")
+  updatedAt   DateTime           @updatedAt @map("updated_at")
+  
+  @@map("notifications")
+}
+
+// =============================================================================
+// SYSTEM CONFIGURATION
+// =============================================================================
+
+model SystemSetting {
+  id          String   @id @default(uuid())
+  key         String   @unique
+  value       String   @db.Text
+  description String?  @db.Text
+  category    String   @default("GENERAL")
+  
+  // Timestamps
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+  
+  @@map("system_settings")
+}
+
+// =============================================================================
+// INDEXES FOR PERFORMANCE
+// =============================================================================
+
+// User indexes
+@@index([User.email])
+@@index([User.role])
+@@index([User.status])
+
+// Contract indexes
+@@index([Contract.clientId])
+@@index([Contract.status])
+@@index([Contract.type])
+@@index([Contract.expirationDate])
+@@index([Contract.createdAt])
+
+// Matter indexes
+@@index([Matter.clientId])
+@@index([Matter.status])
+@@index([Matter.assignedToId])
+@@index([Matter.type])
+
+// Document indexes
+@@index([Document.matterId])
+@@index([Document.type])
+@@index([Document.isPrivileged])
+
+// Risk indexes
+@@index([RiskEvent.riskScore])
+@@index([RiskEvent.status])
+@@index([RiskEvent.type])
+
+// Audit indexes
+@@index([AuditLog.userId])
+@@index([AuditLog.timestamp])
+@@index([AuditLog.eventType])
+
+// Task indexes
+@@index([Task.assignedToId])
+@@index([Task.dueDate])
+@@index([Task.status])
+
+// IP Asset indexes
+@@index([IPAsset.clientId])
+@@index([IPAsset.type])
+@@index([IPAsset.status])
+
+// Dispute indexes
+@@index([Dispute.clientId])
+@@index([Dispute.status])
+@@index([Dispute.type])
