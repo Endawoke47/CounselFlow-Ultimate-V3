@@ -19,21 +19,40 @@ import {
   Scale,
   Bot,
   FileSearch,
+  Shield,
+  ShieldCheck,
+  Gavel,
+  Lightbulb,
+  UserCheck,
+  Zap,
 } from "lucide-react";
 
-const navigation = [
+const coreModules = [
   { name: "Dashboard", href: "/dashboard", icon: Home },
   { name: "Clients", href: "/clients", icon: Users },
   { name: "Matters", href: "/matters", icon: Briefcase },
   { name: "Contracts", href: "/contracts", icon: FileText },
-  { name: "Tasks", href: "/tasks", icon: CheckSquare },
   { name: "Documents", href: "/documents", icon: FolderOpen },
-  { name: "Analytics", href: "/analytics", icon: BarChart3 },
+];
+
+const legalSpecialties = [
+  { name: "Intellectual Property", href: "/ip", icon: Lightbulb },
+  { name: "Litigation & Disputes", href: "/litigation", icon: Gavel },
+  { name: "Data Privacy & PIA", href: "/privacy", icon: Shield },
+  { name: "Risk & Compliance", href: "/compliance", icon: ShieldCheck },
 ];
 
 const aiServices = [
   { name: "Contract Analysis", href: "/ai/contract-analysis", icon: FileSearch },
   { name: "Document Generator", href: "/ai/document-generator", icon: Bot },
+  { name: "Legal Research", href: "/ai/legal-research", icon: Brain },
+  { name: "AI Orchestrator", href: "/ai/orchestrator", icon: Zap },
+];
+
+const adminServices = [
+  { name: "Tasks & Workflows", href: "/tasks", icon: CheckSquare },
+  { name: "Analytics & Reports", href: "/analytics", icon: BarChart3 },
+  { name: "User Management", href: "/admin/users", icon: UserCheck },
 ];
 
 interface SidebarProps {
@@ -55,10 +74,13 @@ export function Sidebar({ className, onItemClick }: SidebarProps) {
       </div>
 
       {/* Navigation */}
-      <nav className="flex-1 space-y-1 px-3 py-4">
-        {/* Main Navigation */}
+      <nav className="flex-1 space-y-1 px-3 py-4 overflow-y-auto">
+        {/* Core Modules */}
         <div className="space-y-1">
-          {navigation.map((item) => {
+          <h3 className="px-3 text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2">
+            Core Practice
+          </h3>
+          {coreModules.map((item) => {
             const isActive = pathname === item.href;
             return (
               <Link
@@ -79,12 +101,40 @@ export function Sidebar({ className, onItemClick }: SidebarProps) {
           })}
         </div>
 
+        {/* Legal Specialties */}
+        <div className="pt-4">
+          <h3 className="px-3 text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2">
+            Legal Specialties
+          </h3>
+          <div className="space-y-1">
+            {legalSpecialties.map((item) => {
+              const isActive = pathname === item.href;
+              return (
+                <Link
+                  key={item.name}
+                  href={item.href}
+                  onClick={onItemClick}
+                  className={cn(
+                    "group flex items-center px-3 py-2 text-sm font-medium rounded-md transition-colors",
+                    isActive
+                      ? "bg-primary text-primary-foreground"
+                      : "text-muted-foreground hover:bg-accent hover:text-accent-foreground"
+                  )}
+                >
+                  <item.icon className="mr-3 h-5 w-5 flex-shrink-0" />
+                  {item.name}
+                </Link>
+              );
+            })}
+          </div>
+        </div>
+
         {/* AI Services Section */}
-        <div className="pt-6">
-          <h3 className="px-3 text-xs font-semibold text-muted-foreground uppercase tracking-wider">
+        <div className="pt-4">
+          <h3 className="px-3 text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2">
             AI Services
           </h3>
-          <div className="mt-2 space-y-1">
+          <div className="space-y-1">
             {aiServices.map((item) => {
               const isActive = pathname === item.href;
               return (
@@ -107,8 +157,36 @@ export function Sidebar({ className, onItemClick }: SidebarProps) {
           </div>
         </div>
 
+        {/* Administration */}
+        <div className="pt-4">
+          <h3 className="px-3 text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2">
+            Administration
+          </h3>
+          <div className="space-y-1">
+            {adminServices.map((item) => {
+              const isActive = pathname === item.href;
+              return (
+                <Link
+                  key={item.name}
+                  href={item.href}
+                  onClick={onItemClick}
+                  className={cn(
+                    "group flex items-center px-3 py-2 text-sm font-medium rounded-md transition-colors",
+                    isActive
+                      ? "bg-primary text-primary-foreground"
+                      : "text-muted-foreground hover:bg-accent hover:text-accent-foreground"
+                  )}
+                >
+                  <item.icon className="mr-3 h-5 w-5 flex-shrink-0" />
+                  {item.name}
+                </Link>
+              );
+            })}
+          </div>
+        </div>
+
         {/* Settings */}
-        <div className="pt-6">
+        <div className="pt-4">
           <Link
             href="/settings"
             onClick={onItemClick}
