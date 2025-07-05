@@ -9,31 +9,31 @@ import structlog
 
 from app.core.database import get_prisma
 from app.api.v1.auth import get_current_user, get_current_active_user
-from app.schemas.user import UserResponse, UserUpdate, UserCreate, UserRole
+from app.schemas.user import (
+    UserResponse, UserUpdate, UserCreate, UserRole, Permission, Department,
+    UserWithPermissions, UserProfile, TeamMember, UserStats, BulkRoleAssignment,
+    RoleAssignment
+)
+from app.services.rbac_service import rbac_service, require_permission, require_role
 from app.core.config import Constants
 
 logger = structlog.get_logger()
 router = APIRouter()
 
 
-@router.get("/", response_model=List[UserResponse])
+@router.get("/", response_model=dict)
+@require_permission(Permission.USER_MANAGEMENT)
 async def get_users(
     skip: int = Query(0, ge=0, description="Number of users to skip"),
     limit: int = Query(Constants.DEFAULT_PAGE_SIZE, ge=1, le=Constants.MAX_PAGE_SIZE, description="Number of users to return"),
     role: Optional[UserRole] = Query(None, description="Filter by user role"),
+    department: Optional[Department] = Query(None, description="Filter by department"),
     active: Optional[bool] = Query(None, description="Filter by active status"),
     search: Optional[str] = Query(None, description="Search by name or email"),
     current_user = Depends(get_current_active_user),
     prisma: Prisma = Depends(get_prisma)
 ):
-    """Get list of users (admin or legal ops only)"""
-    
-    # Check permissions
-    if current_user.role not in [UserRole.ADMIN, UserRole.LEGAL_OPS]:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Not authorized to view users"
-        )
+    """Get list of users with RBAC filtering"""
     
     try:
         # Build where clause
@@ -405,4 +405,283 @@ async def get_user_stats(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to retrieve user statistics"
+        )
+
+
+# Enhanced RBAC Endpoints
+
+@router.get("/{user_id}/permissions", response_model=dict)
+@require_permission(Permission.USER_MANAGEMENT)
+async def get_user_permissions(
+    user_id: str,
+    current_user = Depends(get_current_active_user)
+):
+    """Get permissions for a specific user"""
+    try:
+        # In real implementation, get user role from database
+        user_role = UserRole.COUNSEL  # Mock
+        
+        permissions = rbac_service.get_role_permissions(user_role)
+        
+        return {
+            "user_id": user_id,
+            "role": user_role.value,
+            "permissions": [p.value for p in permissions],
+            "role_description": rbac_service.get_role_description(user_role),
+            "total_permissions": len(permissions)
+        }
+        
+    except Exception as e:
+        logger.error("Failed to get user permissions", error=str(e))
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to get user permissions"
+        )
+
+
+@router.post("/bulk-role-assignment")
+@require_permission(Permission.ROLE_MANAGEMENT)
+async def bulk_assign_roles(
+    bulk_assignment: BulkRoleAssignment,
+    current_user = Depends(get_current_active_user),
+    prisma: Prisma = Depends(get_prisma)
+):
+    """Assign role to multiple users"""
+    try:
+        # Check if current user can assign this role
+        can_assign = rbac_service.can_assign_role(
+            assigner_role=UserRole(current_user.role),
+            target_role=bulk_assignment.role
+        )
+        if not can_assign:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=f"Cannot assign role {bulk_assignment.role.value}"
+            )
+        
+        # In real implementation, update users in database
+        updated_count = len(bulk_assignment.user_ids)
+        
+        logger.info(
+            "Bulk role assignment completed",
+            user_count=updated_count,
+            new_role=bulk_assignment.role.value,
+            assigned_by=current_user.id,
+            reason=bulk_assignment.reason
+        )
+        
+        return {
+            "message": f"Role assigned to {updated_count} users",
+            "users_updated": updated_count,
+            "role": bulk_assignment.role.value,
+            "assigned_by": current_user.id
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error("Bulk role assignment failed", error=str(e))
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Bulk role assignment failed"
+        )
+
+
+@router.get("/{user_id}/profile", response_model=UserProfile)
+async def get_user_profile(
+    user_id: str,
+    current_user = Depends(get_current_active_user)
+):
+    """Get detailed user profile"""
+    try:
+        # Check if viewing own profile or has permission
+        if user_id != current_user.id:
+            user_permissions = rbac_service.get_role_permissions(UserRole(current_user.role))
+            if Permission.USER_MANAGEMENT not in user_permissions:
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail="Cannot view other user profiles"
+                )
+        
+        # Mock user profile for demo
+        return UserProfile(
+            id=user_id,
+            email="demo@counselflow.com",
+            first_name="Demo",
+            last_name="User",
+            role=UserRole.COUNSEL,
+            department=Department.LEGAL,
+            title="Senior Counsel",
+            phone="+1-555-0123",
+            office_location="New York, NY",
+            active=True,
+            email_verified=True,
+            created_at="2024-01-01T00:00:00Z",
+            last_login="2024-01-20T10:30:00Z",
+            permissions=list(rbac_service.get_role_permissions(UserRole.COUNSEL))
+        )
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error("Failed to get user profile", error=str(e))
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to get user profile"
+        )
+
+
+@router.get("/department/{department}/members", response_model=dict)
+async def get_department_members(
+    department: Department,
+    active_only: bool = Query(True, description="Include only active users"),
+    current_user = Depends(get_current_active_user)
+):
+    """Get members of a specific department"""
+    try:
+        # Mock department members for demo
+        mock_members = [
+            TeamMember(
+                id="1",
+                first_name="Sarah",
+                last_name="Chen",
+                email="sarah.chen@counselflow.com",
+                role=UserRole.GENERAL_COUNSEL,
+                department=department,
+                title="General Counsel",
+                active=True
+            ),
+            TeamMember(
+                id="2",
+                first_name="Michael",
+                last_name="Rodriguez",
+                email="michael.rodriguez@counselflow.com",
+                role=UserRole.SENIOR_COUNSEL,
+                department=department,
+                title="Senior Counsel - Litigation",
+                active=True
+            ),
+            TeamMember(
+                id="3",
+                first_name="Dr. Lisa",
+                last_name="Wang",
+                email="lisa.wang@counselflow.com",
+                role=UserRole.COUNSEL,
+                department=department,
+                title="Counsel - IP & Technology",
+                active=True
+            )
+        ]
+        
+        if active_only:
+            mock_members = [m for m in mock_members if m.active]
+        
+        return {
+            "department": department.value,
+            "department_name": department.value.replace("_", " ").title(),
+            "members": mock_members,
+            "total": len(mock_members),
+            "active_only": active_only
+        }
+        
+    except Exception as e:
+        logger.error("Failed to get department members", error=str(e))
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to get department members"
+        )
+
+
+@router.post("/{user_id}/assign-role")
+@require_permission(Permission.ROLE_MANAGEMENT)
+async def assign_user_role(
+    user_id: str,
+    role_assignment: RoleAssignment,
+    current_user = Depends(get_current_active_user),
+    prisma: Prisma = Depends(get_prisma)
+):
+    """Assign role to a specific user"""
+    try:
+        # Ensure user_id matches the assignment
+        if role_assignment.user_id != user_id:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="User ID mismatch"
+            )
+        
+        # Check if current user can assign this role
+        can_assign = rbac_service.can_assign_role(
+            assigner_role=UserRole(current_user.role),
+            target_role=role_assignment.role
+        )
+        if not can_assign:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=f"Cannot assign role {role_assignment.role.value}"
+            )
+        
+        # In real implementation, update user in database
+        # await prisma.user.update(
+        #     where={"id": user_id},
+        #     data={"role": role_assignment.role.value}
+        # )
+        
+        logger.info(
+            "Role assigned to user",
+            user_id=user_id,
+            new_role=role_assignment.role.value,
+            assigned_by=current_user.id,
+            reason=role_assignment.reason
+        )
+        
+        return {
+            "message": "Role assigned successfully",
+            "user_id": user_id,
+            "new_role": role_assignment.role.value,
+            "assigned_by": current_user.id,
+            "reason": role_assignment.reason
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error("Role assignment failed", error=str(e))
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Role assignment failed"
+        )
+
+
+@router.get("/roles/available", response_model=dict)
+@require_permission(Permission.ROLE_MANAGEMENT)
+async def get_assignable_roles(
+    current_user = Depends(get_current_active_user)
+):
+    """Get roles that current user can assign"""
+    try:
+        assignable_roles = {}
+        
+        for role in UserRole:
+            can_assign = rbac_service.can_assign_role(
+                assigner_role=UserRole(current_user.role),
+                target_role=role
+            )
+            
+            if can_assign:
+                assignable_roles[role.value] = {
+                    "description": rbac_service.get_role_description(role),
+                    "permissions_count": len(rbac_service.get_role_permissions(role))
+                }
+        
+        return {
+            "assignable_roles": assignable_roles,
+            "total_assignable": len(assignable_roles),
+            "assigner_role": current_user.role
+        }
+        
+    except Exception as e:
+        logger.error("Failed to get assignable roles", error=str(e))
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to get assignable roles"
         )

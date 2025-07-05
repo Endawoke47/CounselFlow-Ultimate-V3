@@ -15,8 +15,14 @@ from prisma import Prisma
 from app.core.config import settings
 from app.core.database import get_prisma
 from app.core.redis import get_session_manager
-from app.schemas.user import UserCreate, UserResponse, UserLogin
-from app.schemas.auth import Token, TokenData, PasswordReset, PasswordChange
+from app.schemas.user import (
+    UserCreate, UserResponse, UserLogin, UserRole, Permission, Department,
+    UserWithPermissions, PermissionCheck, PermissionResult, RoleAssignment,
+    UserSearch, UserStats, TeamMember
+)
+from app.schemas.auth import Token, TokenData, PasswordReset, PasswordChange, SessionInfo
+from app.services.auth_service import auth_service, UserSession
+from app.services.rbac_service import rbac_service, require_permission, require_role
 
 logger = structlog.get_logger()
 router = APIRouter()
@@ -568,4 +574,365 @@ async def get_active_sessions(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to get sessions"
+        )
+
+
+# RBAC Endpoints
+
+@router.get("/permissions", response_model=dict)
+async def get_user_permissions(
+    current_user = Depends(get_current_user)
+):
+    """Get current user's permissions"""
+    try:
+        permissions = rbac_service.get_role_permissions(UserRole(current_user.role))
+        
+        return {
+            "user_id": current_user.id,
+            "role": current_user.role,
+            "permissions": [p.value for p in permissions],
+            "role_description": rbac_service.get_role_description(UserRole(current_user.role))
+        }
+        
+    except Exception as e:
+        logger.error("Failed to get permissions", error=str(e), user_id=current_user.id)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to get permissions"
+        )
+
+
+@router.post("/check-permission", response_model=PermissionResult)
+async def check_permission(
+    permission_check: PermissionCheck,
+    current_user = Depends(get_current_user)
+):
+    """Check if user has specific permission"""
+    try:
+        # Only allow users to check their own permissions unless they're admin
+        if permission_check.user_id != current_user.id:
+            user_permissions = rbac_service.get_role_permissions(UserRole(current_user.role))
+            if Permission.USER_MANAGEMENT not in user_permissions:
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail="Cannot check permissions for other users"
+                )
+        
+        # Get target user's role (in real implementation, query database)
+        target_role = UserRole(current_user.role)  # Simplified
+        
+        has_permission = rbac_service.has_permission(
+            user_role=target_role,
+            permission=permission_check.permission,
+            resource_id=permission_check.resource_id
+        )
+        
+        return PermissionResult(
+            has_permission=has_permission,
+            reason="Permission granted" if has_permission else "Permission denied"
+        )
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error("Permission check failed", error=str(e))
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Permission check failed"
+        )
+
+
+@router.get("/roles", response_model=dict)
+@require_permission(Permission.ROLE_MANAGEMENT)
+async def get_available_roles(
+    current_user = Depends(get_current_user)
+):
+    """Get available roles and their descriptions"""
+    try:
+        roles_info = {}
+        
+        for role in UserRole:
+            # Check if current user can assign this role
+            can_assign = rbac_service.can_assign_role(
+                assigner_role=UserRole(current_user.role),
+                target_role=role
+            )
+            
+            roles_info[role.value] = {
+                "description": rbac_service.get_role_description(role),
+                "permissions": [p.value for p in rbac_service.get_role_permissions(role)],
+                "can_assign": can_assign
+            }
+        
+        return {
+            "roles": roles_info,
+            "current_user_role": current_user.role
+        }
+        
+    except Exception as e:
+        logger.error("Failed to get roles", error=str(e))
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to get roles"
+        )
+
+
+@router.post("/assign-role")
+@require_permission(Permission.ROLE_MANAGEMENT)
+async def assign_role(
+    role_assignment: RoleAssignment,
+    current_user = Depends(get_current_user),
+    prisma: Prisma = Depends(get_prisma)
+):
+    """Assign role to user"""
+    try:
+        # Check if current user can assign this role
+        can_assign = rbac_service.can_assign_role(
+            assigner_role=UserRole(current_user.role),
+            target_role=role_assignment.role
+        )
+        
+        if not can_assign:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=f"Cannot assign role {role_assignment.role.value}"
+            )
+        
+        # Update user role (in real implementation)
+        # await prisma.user.update(
+        #     where={"id": role_assignment.user_id},
+        #     data={"role": role_assignment.role.value}
+        # )
+        
+        # Log role assignment
+        logger.info(
+            "Role assigned",
+            user_id=role_assignment.user_id,
+            new_role=role_assignment.role.value,
+            assigned_by=current_user.id,
+            reason=role_assignment.reason
+        )
+        
+        return {
+            "message": "Role assigned successfully",
+            "user_id": role_assignment.user_id,
+            "new_role": role_assignment.role.value,
+            "assigned_by": current_user.id
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error("Role assignment failed", error=str(e))
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Role assignment failed"
+        )
+
+
+@router.get("/departments", response_model=dict)
+async def get_departments():
+    """Get available departments"""
+    return {
+        "departments": [
+            {
+                "value": dept.value,
+                "name": dept.value.replace("_", " ").title()
+            }
+            for dept in Department
+        ]
+    }
+
+
+@router.get("/user-stats", response_model=UserStats)
+@require_permission(Permission.ANALYTICS_VIEW)
+async def get_user_statistics(
+    current_user = Depends(get_current_user),
+    prisma: Prisma = Depends(get_prisma)
+):
+    """Get user statistics and analytics"""
+    try:
+        # In a real implementation, this would query the database
+        # For demo, return mock data
+        
+        return UserStats(
+            total_users=247,
+            active_users=231,
+            users_by_role={
+                "GENERAL_COUNSEL": 1,
+                "SENIOR_COUNSEL": 3,
+                "COUNSEL": 12,
+                "ASSOCIATE_COUNSEL": 8,
+                "LEGAL_OPS_MANAGER": 2,
+                "LEGAL_OPS_ANALYST": 4,
+                "PARALEGAL": 15,
+                "LEGAL_ASSISTANT": 8,
+                "COMPLIANCE_OFFICER": 3,
+                "BUSINESS_STAKEHOLDER": 156,
+                "EXTERNAL_COUNSEL": 24,
+                "CONTRACT_MANAGER": 6,
+                "VENDOR_MANAGER": 3,
+                "VIEWER": 2
+            },
+            users_by_department={
+                "LEGAL": 45,
+                "COMPLIANCE": 8,
+                "BUSINESS": 156,
+                "CONTRACTS": 12,
+                "IT": 15,
+                "FINANCE": 8,
+                "HR": 3
+            },
+            recent_logins=89,
+            new_users_this_month=12
+        )
+        
+    except Exception as e:
+        logger.error("Failed to get user stats", error=str(e))
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to get user statistics"
+        )
+
+
+@router.get("/team-members", response_model=dict)
+async def get_team_members(
+    department: Optional[Department] = None,
+    role: Optional[UserRole] = None,
+    limit: int = 50,
+    current_user = Depends(get_current_user)
+):
+    """Get team members with optional filtering"""
+    try:
+        # In a real implementation, this would query the database
+        # For demo, return mock data
+        
+        mock_members = [
+            TeamMember(
+                id="1",
+                first_name="Sarah",
+                last_name="Chen",
+                email="sarah.chen@counselflow.com",
+                role=UserRole.GENERAL_COUNSEL,
+                department=Department.LEGAL,
+                title="General Counsel",
+                active=True
+            ),
+            TeamMember(
+                id="2",
+                first_name="Michael",
+                last_name="Rodriguez",
+                email="michael.rodriguez@counselflow.com",
+                role=UserRole.SENIOR_COUNSEL,
+                department=Department.LEGAL,
+                title="Senior Counsel - Litigation",
+                active=True
+            ),
+            TeamMember(
+                id="3",
+                first_name="Dr. Lisa",
+                last_name="Wang",
+                email="lisa.wang@counselflow.com",
+                role=UserRole.COUNSEL,
+                department=Department.LEGAL,
+                title="Counsel - IP & Technology",
+                active=True
+            )
+        ]
+        
+        # Apply filters
+        filtered_members = mock_members
+        if department:
+            filtered_members = [m for m in filtered_members if m.department == department]
+        if role:
+            filtered_members = [m for m in filtered_members if m.role == role]
+        
+        return {
+            "members": filtered_members[:limit],
+            "total": len(filtered_members),
+            "filters": {
+                "department": department.value if department else None,
+                "role": role.value if role else None
+            }
+        }
+        
+    except Exception as e:
+        logger.error("Failed to get team members", error=str(e))
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to get team members"
+        )
+
+
+@router.get("/audit-log")
+@require_permission(Permission.AUDIT_READ)
+async def get_authentication_audit_log(
+    days: int = 7,
+    user_id: Optional[str] = None,
+    event_type: Optional[str] = None,
+    limit: int = 100,
+    current_user = Depends(get_current_user)
+):
+    """Get authentication audit log"""
+    try:
+        # In a real implementation, this would query audit logs from database
+        # For demo, return mock audit data
+        
+        from datetime import datetime, timedelta
+        
+        mock_audit_entries = [
+            {
+                "id": "1",
+                "event_type": "login_success",
+                "user_id": "user-123",
+                "email": "sarah.chen@counselflow.com",
+                "ip_address": "192.168.1.100",
+                "user_agent": "Mozilla/5.0...",
+                "timestamp": (datetime.utcnow() - timedelta(minutes=30)).isoformat(),
+                "details": {"role": "GENERAL_COUNSEL", "department": "LEGAL"}
+            },
+            {
+                "id": "2",
+                "event_type": "permission_check",
+                "user_id": "user-456",
+                "email": "michael.rodriguez@counselflow.com",
+                "ip_address": "192.168.1.101",
+                "user_agent": "Mozilla/5.0...",
+                "timestamp": (datetime.utcnow() - timedelta(hours=1)).isoformat(),
+                "details": {"permission": "CONTRACT_APPROVE", "result": "granted"}
+            },
+            {
+                "id": "3",
+                "event_type": "role_assignment",
+                "user_id": "user-789",
+                "email": "admin@counselflow.com",
+                "ip_address": "192.168.1.102",
+                "user_agent": "Mozilla/5.0...",
+                "timestamp": (datetime.utcnow() - timedelta(hours=2)).isoformat(),
+                "details": {"target_user": "user-321", "new_role": "COUNSEL", "previous_role": "ASSOCIATE_COUNSEL"}
+            }
+        ]
+        
+        # Apply filters
+        filtered_entries = mock_audit_entries
+        if user_id:
+            filtered_entries = [e for e in filtered_entries if e["user_id"] == user_id]
+        if event_type:
+            filtered_entries = [e for e in filtered_entries if e["event_type"] == event_type]
+        
+        return {
+            "audit_entries": filtered_entries[:limit],
+            "total": len(filtered_entries),
+            "filters": {
+                "days": days,
+                "user_id": user_id,
+                "event_type": event_type
+            }
+        }
+        
+    except Exception as e:
+        logger.error("Failed to get audit log", error=str(e))
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to get audit log"
         )

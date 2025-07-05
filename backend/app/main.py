@@ -35,7 +35,7 @@ from app.api.v1 import (
     ip,
     privacy,
     risk,
-    disputes,
+    litigation,
     documents,
     tasks,
     ai,
@@ -238,7 +238,7 @@ app.include_router(matters.router, prefix=f"{API_V1_PREFIX}/matters", tags=["Mat
 app.include_router(ip.router, prefix=f"{API_V1_PREFIX}/ip", tags=["Intellectual Property"])
 app.include_router(privacy.router, prefix=f"{API_V1_PREFIX}/privacy", tags=["Data Privacy"])
 app.include_router(risk.router, prefix=f"{API_V1_PREFIX}/risk", tags=["Risk & Compliance"])
-app.include_router(disputes.router, prefix=f"{API_V1_PREFIX}/disputes", tags=["Disputes & Litigation"])
+app.include_router(litigation.router, prefix=f"{API_V1_PREFIX}/litigation", tags=["Litigation & Disputes"])
 
 # Document and task management
 app.include_router(documents.router, prefix=f"{API_V1_PREFIX}/documents", tags=["Documents"])
@@ -246,6 +246,10 @@ app.include_router(tasks.router, prefix=f"{API_V1_PREFIX}/tasks", tags=["Tasks"]
 
 # AI services
 app.include_router(ai.router, prefix=f"{API_V1_PREFIX}/ai", tags=["AI Services"])
+
+# Import and include AI orchestrator
+from app.api.v1 import ai_orchestrator
+app.include_router(ai_orchestrator.router, prefix=f"{API_V1_PREFIX}/ai/orchestrator", tags=["AI Orchestrator"])
 
 # System services
 app.include_router(notifications.router, prefix=f"{API_V1_PREFIX}/notifications", tags=["Notifications"])
@@ -283,7 +287,7 @@ async def api_info():
             "ip": "Intellectual property management",
             "privacy": "Data privacy and PIA",
             "risk": "Risk and compliance management",
-            "disputes": "Dispute resolution and litigation",
+            "litigation": "Litigation and dispute resolution",
             "documents": "Document management",
             "tasks": "Task and workflow management",
             "ai": "AI-powered legal services",

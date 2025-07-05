@@ -261,9 +261,10 @@ class AIOrchestrator:
     async def analyze_contract(
         self,
         contract_text: str,
-        analysis_type: str = "risk_assessment"
+        analysis_type: str = "risk_assessment",
+        use_consensus: bool = False
     ) -> Dict[str, Any]:
-        """Analyze contract using AI"""
+        """Analyze contract using AI with optional multi-provider consensus"""
         
         prompts = {
             "risk_assessment": f"""
@@ -313,63 +314,318 @@ class AIOrchestrator:
             4. Best practices
             
             Provide compliance score (1-10) and specific issues found.
+            """,
+            
+            "legal_strategy": f"""
+            Analyze this contract from a strategic legal perspective:
+            
+            Contract Text:
+            {contract_text}
+            
+            Provide analysis on:
+            1. Negotiation advantages and weaknesses
+            2. Market standard deviations
+            3. Precedent and case law implications
+            4. Alternative clause suggestions
+            5. Risk mitigation strategies
+            
+            Format as JSON with structured recommendations.
             """
         }
         
         prompt = prompts.get(analysis_type, prompts["risk_assessment"])
         
         try:
-            # Try multiple providers for redundancy
-            providers_to_try = [AIProvider.OPENAI, AIProvider.ANTHROPIC, AIProvider.GOOGLE]
-            
-            for provider in providers_to_try:
-                if provider in self.providers:
-                    try:
-                        response = await self.generate_text(
-                            prompt=prompt,
-                            provider=provider,
-                            temperature=0.1  # Lower temperature for analytical tasks
-                        )
-                        
-                        # Try to parse JSON response
+            if use_consensus and len(self.providers) >= 2:
+                return await self._analyze_with_consensus(prompt, analysis_type)
+            else:
+                # Single provider analysis with fallback
+                providers_to_try = [AIProvider.OPENAI, AIProvider.ANTHROPIC, AIProvider.GOOGLE]
+                
+                for provider in providers_to_try:
+                    if provider in self.providers:
                         try:
-                            analysis_result = json.loads(response.content)
-                            analysis_result["_metadata"] = {
-                                "provider": provider.value,
-                                "model": response.model,
-                                "processing_time": response.processing_time,
-                                "tokens_used": response.tokens_used
-                            }
-                            return analysis_result
-                        except json.JSONDecodeError:
-                            # If JSON parsing fails, return structured response
-                            return {
-                                "analysis": response.content,
-                                "analysis_type": analysis_type,
-                                "_metadata": {
+                            response = await self.generate_text(
+                                prompt=prompt,
+                                provider=provider,
+                                temperature=0.1
+                            )
+                            
+                            # Try to parse JSON response
+                            try:
+                                analysis_result = json.loads(response.content)
+                                analysis_result["_metadata"] = {
                                     "provider": provider.value,
                                     "model": response.model,
                                     "processing_time": response.processing_time,
-                                    "tokens_used": response.tokens_used
+                                    "tokens_used": response.tokens_used,
+                                    "consensus": False
                                 }
-                            }
-                    
-                    except Exception as e:
-                        logger.warning(f"Contract analysis failed with {provider}", error=str(e))
-                        continue
-            
-            raise RuntimeError("All AI providers failed for contract analysis")
+                                return analysis_result
+                            except json.JSONDecodeError:
+                                return {
+                                    "analysis": response.content,
+                                    "analysis_type": analysis_type,
+                                    "_metadata": {
+                                        "provider": provider.value,
+                                        "model": response.model,
+                                        "processing_time": response.processing_time,
+                                        "tokens_used": response.tokens_used,
+                                        "consensus": False
+                                    }
+                                }
+                        
+                        except Exception as e:
+                            logger.warning(f"Contract analysis failed with {provider}", error=str(e))
+                            continue
+                
+                raise RuntimeError("All AI providers failed for contract analysis")
             
         except Exception as e:
             logger.error("Contract analysis failed", error=str(e))
             raise
     
+    async def _analyze_with_consensus(
+        self,
+        prompt: str,
+        analysis_type: str
+    ) -> Dict[str, Any]:
+        """Perform consensus analysis using multiple AI providers"""
+        
+        available_providers = list(self.providers.keys())
+        if len(available_providers) < 2:
+            raise ValueError("Consensus analysis requires at least 2 providers")
+        
+        responses = []
+        tasks = []
+        
+        # Run analysis on all available providers concurrently
+        for provider in available_providers:
+            task = self.generate_text(
+                prompt=prompt,
+                provider=provider,
+                temperature=0.1
+            )
+            tasks.append((provider, task))
+        
+        # Collect all responses
+        for provider, task in tasks:
+            try:
+                response = await task
+                try:
+                    parsed_content = json.loads(response.content)
+                    responses.append({
+                        "provider": provider.value,
+                        "content": parsed_content,
+                        "raw_response": response
+                    })
+                except json.JSONDecodeError:
+                    responses.append({
+                        "provider": provider.value,
+                        "content": {"analysis": response.content},
+                        "raw_response": response
+                    })
+            except Exception as e:
+                logger.warning(f"Consensus analysis failed for {provider}", error=str(e))
+                continue
+        
+        if not responses:
+            raise RuntimeError("No providers succeeded in consensus analysis")
+        
+        # Generate consensus result
+        consensus_result = await self._generate_consensus(responses, analysis_type)
+        
+        # Add metadata
+        consensus_result["_metadata"] = {
+            "consensus": True,
+            "providers_used": [r["provider"] for r in responses],
+            "total_providers": len(responses),
+            "analysis_type": analysis_type,
+            "total_tokens": sum(r["raw_response"].tokens_used or 0 for r in responses),
+            "avg_processing_time": sum(r["raw_response"].processing_time or 0 for r in responses) / len(responses)
+        }
+        
+        return consensus_result
+    
+    async def _generate_consensus(
+        self,
+        responses: List[Dict[str, Any]],
+        analysis_type: str
+    ) -> Dict[str, Any]:
+        """Generate consensus from multiple AI responses"""
+        
+        if analysis_type == "risk_assessment":
+            return await self._consensus_risk_assessment(responses)
+        elif analysis_type == "clause_extraction":
+            return await self._consensus_clause_extraction(responses)
+        elif analysis_type == "compliance_check":
+            return await self._consensus_compliance_check(responses)
+        else:
+            # Generic consensus for other types
+            return await self._generic_consensus(responses)
+    
+    async def _consensus_risk_assessment(self, responses: List[Dict[str, Any]]) -> Dict[str, Any]:
+        """Generate consensus for risk assessment"""
+        
+        risk_scores = []
+        all_risk_areas = []
+        all_recommendations = []
+        all_critical_clauses = []
+        all_missing_provisions = []
+        
+        for response in responses:
+            content = response["content"]
+            if isinstance(content, dict):
+                if "risk_score" in content:
+                    try:
+                        risk_scores.append(float(content["risk_score"]))
+                    except (ValueError, TypeError):
+                        pass
+                
+                if "risk_areas" in content and isinstance(content["risk_areas"], list):
+                    all_risk_areas.extend(content["risk_areas"])
+                
+                if "recommendations" in content and isinstance(content["recommendations"], list):
+                    all_recommendations.extend(content["recommendations"])
+                
+                if "critical_clauses" in content and isinstance(content["critical_clauses"], list):
+                    all_critical_clauses.extend(content["critical_clauses"])
+                
+                if "missing_provisions" in content and isinstance(content["missing_provisions"], list):
+                    all_missing_provisions.extend(content["missing_provisions"])
+        
+        # Calculate consensus risk score (average)
+        consensus_risk_score = sum(risk_scores) / len(risk_scores) if risk_scores else 5.0
+        
+        # Remove duplicates and rank by frequency
+        def rank_by_frequency(items):
+            from collections import Counter
+            if not items:
+                return []
+            counter = Counter(items)
+            return [item for item, count in counter.most_common()]
+        
+        return {
+            "risk_score": round(consensus_risk_score, 1),
+            "risk_areas": rank_by_frequency(all_risk_areas)[:10],  # Top 10
+            "recommendations": rank_by_frequency(all_recommendations)[:10],
+            "critical_clauses": rank_by_frequency(all_critical_clauses)[:10],
+            "missing_provisions": rank_by_frequency(all_missing_provisions)[:10],
+            "confidence_score": len(responses) / 3.0 * 100,  # Higher with more providers
+            "provider_agreement": {
+                "risk_score_variance": max(risk_scores) - min(risk_scores) if len(risk_scores) > 1 else 0,
+                "provider_count": len(responses)
+            }
+        }
+    
+    async def _consensus_clause_extraction(self, responses: List[Dict[str, Any]]) -> Dict[str, Any]:
+        """Generate consensus for clause extraction"""
+        
+        clause_types = ["payment_terms", "termination_clauses", "liability_limitations", 
+                       "intellectual_property_clauses", "confidentiality_provisions", "governing_law"]
+        
+        consensus_clauses = {}
+        
+        for clause_type in clause_types:
+            extracted_clauses = []
+            for response in responses:
+                content = response["content"]
+                if isinstance(content, dict) and clause_type in content:
+                    if content[clause_type]:
+                        extracted_clauses.append(content[clause_type])
+            
+            if extracted_clauses:
+                # Use the most common extraction or the longest one
+                consensus_clauses[clause_type] = max(extracted_clauses, key=len)
+            else:
+                consensus_clauses[clause_type] = "Not found"
+        
+        return {
+            **consensus_clauses,
+            "extraction_confidence": len(responses) / 3.0 * 100,
+            "clauses_found": sum(1 for v in consensus_clauses.values() if v != "Not found")
+        }
+    
+    async def _consensus_compliance_check(self, responses: List[Dict[str, Any]]) -> Dict[str, Any]:
+        """Generate consensus for compliance check"""
+        
+        compliance_scores = []
+        all_issues = []
+        
+        for response in responses:
+            content = response["content"]
+            if isinstance(content, dict):
+                if "compliance_score" in content:
+                    try:
+                        compliance_scores.append(float(content["compliance_score"]))
+                    except (ValueError, TypeError):
+                        pass
+                
+                if "issues" in content and isinstance(content["issues"], list):
+                    all_issues.extend(content["issues"])
+        
+        consensus_score = sum(compliance_scores) / len(compliance_scores) if compliance_scores else 5.0
+        
+        from collections import Counter
+        issue_counter = Counter(all_issues)
+        ranked_issues = [issue for issue, count in issue_counter.most_common(10)]
+        
+        return {
+            "compliance_score": round(consensus_score, 1),
+            "issues": ranked_issues,
+            "compliance_level": "High" if consensus_score >= 8 else "Medium" if consensus_score >= 6 else "Low",
+            "confidence": len(responses) / 3.0 * 100
+        }
+    
+    async def _generic_consensus(self, responses: List[Dict[str, Any]]) -> Dict[str, Any]:
+        """Generate generic consensus for unstructured responses"""
+        
+        # Combine all text responses
+        combined_analysis = "\n\n".join([
+            f"Provider {resp['provider']}:\n{resp['content'].get('analysis', str(resp['content']))}"
+            for resp in responses
+        ])
+        
+        # Use the primary provider to synthesize consensus
+        if self.providers:
+            primary_provider = list(self.providers.keys())[0]
+            synthesis_prompt = f"""
+            Based on the following multiple AI analysis results, provide a synthesized consensus:
+            
+            {combined_analysis}
+            
+            Please provide a unified analysis that incorporates the best insights from all providers.
+            Highlight areas of agreement and note any significant disagreements.
+            """
+            
+            try:
+                synthesis_response = await self.generate_text(
+                    prompt=synthesis_prompt,
+                    provider=primary_provider,
+                    temperature=0.2
+                )
+                
+                return {
+                    "consensus_analysis": synthesis_response.content,
+                    "individual_responses": responses,
+                    "synthesis_quality": "AI-generated"
+                }
+            except Exception as e:
+                logger.warning("Failed to generate synthesis", error=str(e))
+        
+        return {
+            "consensus_analysis": combined_analysis,
+            "individual_responses": responses,
+            "synthesis_quality": "Simple concatenation"
+        }
+    
     async def generate_document(
         self,
         document_type: str,
-        parameters: Dict[str, Any]
-    ) -> str:
-        """Generate legal document using AI"""
+        parameters: Dict[str, Any],
+        use_consensus: bool = False
+    ) -> Dict[str, Any]:
+        """Generate legal document using AI with optional consensus"""
         
         document_prompts = {
             "nda": """
@@ -409,6 +665,42 @@ class AIOrchestrator:
             - General privacy best practices
             
             Include all necessary sections for data collection, use, and protection.
+            """,
+            
+            "employment_agreement": """
+            Generate an Employment Agreement with these parameters:
+            {parameters}
+            
+            Include:
+            - Job description and responsibilities
+            - Compensation and benefits
+            - Confidentiality and non-compete clauses
+            - Termination procedures
+            - Intellectual property assignment
+            """,
+            
+            "license_agreement": """
+            Generate a Software License Agreement with these parameters:
+            {parameters}
+            
+            Include:
+            - License grant and scope
+            - Usage restrictions
+            - Support and maintenance terms
+            - Liability limitations
+            - Termination conditions
+            """,
+            
+            "partnership_agreement": """
+            Generate a Partnership Agreement with these parameters:
+            {parameters}
+            
+            Include:
+            - Partnership structure and governance
+            - Capital contributions and profit sharing
+            - Management responsibilities
+            - Dispute resolution procedures
+            - Exit strategies
             """
         }
         
@@ -418,16 +710,314 @@ class AIOrchestrator:
         prompt = document_prompts[document_type].format(parameters=json.dumps(parameters, indent=2))
         
         try:
-            response = await self.generate_text(
-                prompt=prompt,
-                temperature=0.3,  # Moderate creativity for document generation
-                max_tokens=4000   # Longer documents need more tokens
-            )
-            
-            return response.content
+            if use_consensus and len(self.providers) >= 2:
+                # Generate multiple versions and create consensus
+                return await self._generate_document_with_consensus(prompt, document_type, parameters)
+            else:
+                response = await self.generate_text(
+                    prompt=prompt,
+                    temperature=0.3,
+                    max_tokens=4000
+                )
+                
+                return {
+                    "document": response.content,
+                    "document_type": document_type,
+                    "parameters": parameters,
+                    "metadata": {
+                        "provider": response.provider.value,
+                        "model": response.model,
+                        "processing_time": response.processing_time,
+                        "tokens_used": response.tokens_used,
+                        "consensus": False
+                    }
+                }
             
         except Exception as e:
             logger.error("Document generation failed", document_type=document_type, error=str(e))
+            raise
+    
+    async def _generate_document_with_consensus(
+        self,
+        prompt: str,
+        document_type: str,
+        parameters: Dict[str, Any]
+    ) -> Dict[str, Any]:
+        """Generate document with consensus from multiple providers"""
+        
+        available_providers = list(self.providers.keys())[:2]  # Use top 2 providers for efficiency
+        
+        documents = []
+        for provider in available_providers:
+            try:
+                response = await self.generate_text(
+                    prompt=prompt,
+                    provider=provider,
+                    temperature=0.3,
+                    max_tokens=4000
+                )
+                documents.append({
+                    "provider": provider.value,
+                    "content": response.content,
+                    "metadata": response
+                })
+            except Exception as e:
+                logger.warning(f"Document generation failed for {provider}", error=str(e))
+                continue
+        
+        if len(documents) < 2:
+            # Fallback to single provider
+            if documents:
+                return {
+                    "document": documents[0]["content"],
+                    "document_type": document_type,
+                    "parameters": parameters,
+                    "metadata": {
+                        "provider": documents[0]["provider"],
+                        "consensus": False,
+                        "fallback": True
+                    }
+                }
+            else:
+                raise RuntimeError("All providers failed for document generation")
+        
+        # Create synthesis prompt
+        synthesis_prompt = f"""
+        I have {len(documents)} versions of a {document_type} generated by different AI providers.
+        Please create the best possible version by combining the strengths of each:
+        
+        Version 1 ({documents[0]['provider']}):
+        {documents[0]['content']}
+        
+        Version 2 ({documents[1]['provider']}):
+        {documents[1]['content']}
+        
+        Create a synthesized version that:
+        1. Uses the best legal language from both versions
+        2. Includes the most comprehensive clauses
+        3. Maintains legal accuracy and consistency
+        4. Follows professional formatting standards
+        
+        Provide only the final synthesized document.
+        """
+        
+        try:
+            synthesis_response = await self.generate_text(
+                prompt=synthesis_prompt,
+                provider=available_providers[0],
+                temperature=0.2,
+                max_tokens=4000
+            )
+            
+            return {
+                "document": synthesis_response.content,
+                "document_type": document_type,
+                "parameters": parameters,
+                "metadata": {
+                    "consensus": True,
+                    "providers_used": [doc["provider"] for doc in documents],
+                    "synthesis_provider": available_providers[0].value,
+                    "total_tokens": sum(doc["metadata"].tokens_used or 0 for doc in documents),
+                    "processing_time": sum(doc["metadata"].processing_time or 0 for doc in documents)
+                },
+                "individual_versions": documents
+            }
+            
+        except Exception as e:
+            logger.warning("Document synthesis failed", error=str(e))
+            # Return the best individual version
+            return {
+                "document": documents[0]["content"],
+                "document_type": document_type,
+                "parameters": parameters,
+                "metadata": {
+                    "provider": documents[0]["provider"],
+                    "consensus": False,
+                    "synthesis_failed": True
+                }
+            }
+    
+    async def research_legal_topic(
+        self,
+        topic: str,
+        jurisdiction: str = "US",
+        research_depth: str = "comprehensive"
+    ) -> Dict[str, Any]:
+        """Conduct legal research on a specific topic"""
+        
+        research_prompt = f"""
+        Conduct comprehensive legal research on the following topic:
+        
+        Topic: {topic}
+        Jurisdiction: {jurisdiction}
+        Research Depth: {research_depth}
+        
+        Please provide:
+        1. Legal Framework Overview
+        2. Key Statutes and Regulations
+        3. Relevant Case Law (with citations)
+        4. Current Legal Trends
+        5. Practical Implications
+        6. Risk Assessment
+        7. Recommended Actions
+        
+        Format as JSON with these sections clearly defined.
+        Include citations where applicable and mark any areas of legal uncertainty.
+        """
+        
+        try:
+            # Use the most capable provider for research
+            preferred_providers = [AIProvider.ANTHROPIC, AIProvider.OPENAI, AIProvider.GOOGLE]
+            
+            for provider in preferred_providers:
+                if provider in self.providers:
+                    try:
+                        response = await self.generate_text(
+                            prompt=research_prompt,
+                            provider=provider,
+                            temperature=0.1,  # Lower temperature for accuracy
+                            max_tokens=4000
+                        )
+                        
+                        try:
+                            research_result = json.loads(response.content)
+                        except json.JSONDecodeError:
+                            research_result = {"research": response.content}
+                        
+                        research_result["_metadata"] = {
+                            "topic": topic,
+                            "jurisdiction": jurisdiction,
+                            "research_depth": research_depth,
+                            "provider": provider.value,
+                            "model": response.model,
+                            "processing_time": response.processing_time,
+                            "tokens_used": response.tokens_used,
+                            "disclaimer": "AI-generated research should be verified with legal professionals"
+                        }
+                        
+                        return research_result
+                        
+                    except Exception as e:
+                        logger.warning(f"Legal research failed with {provider}", error=str(e))
+                        continue
+            
+            raise RuntimeError("All providers failed for legal research")
+            
+        except Exception as e:
+            logger.error("Legal research failed", topic=topic, error=str(e))
+            raise
+    
+    async def analyze_litigation_strategy(
+        self,
+        case_details: Dict[str, Any],
+        analysis_type: str = "comprehensive"
+    ) -> Dict[str, Any]:
+        """Analyze litigation strategy and provide recommendations"""
+        
+        strategy_prompt = f"""
+        Analyze the following litigation case and provide strategic recommendations:
+        
+        Case Details:
+        {json.dumps(case_details, indent=2)}
+        
+        Analysis Type: {analysis_type}
+        
+        Please provide:
+        1. Case Strength Assessment (1-10 scale)
+        2. Key Legal Issues
+        3. Potential Arguments (for plaintiff/defendant)
+        4. Evidence Requirements
+        5. Settlement Considerations
+        6. Timeline and Milestones
+        7. Resource Requirements
+        8. Risk Factors
+        9. Strategic Recommendations
+        10. Alternative Dispute Resolution Options
+        
+        Format as JSON with detailed analysis for each section.
+        Consider both offensive and defensive strategies.
+        """
+        
+        try:
+            response = await self.generate_text(
+                prompt=strategy_prompt,
+                temperature=0.2,
+                max_tokens=4000
+            )
+            
+            try:
+                strategy_result = json.loads(response.content)
+            except json.JSONDecodeError:
+                strategy_result = {"strategy_analysis": response.content}
+            
+            strategy_result["_metadata"] = {
+                "case_id": case_details.get("case_id", "unknown"),
+                "analysis_type": analysis_type,
+                "provider": response.provider.value,
+                "model": response.model,
+                "processing_time": response.processing_time,
+                "tokens_used": response.tokens_used,
+                "disclaimer": "Strategic analysis is AI-generated and should be reviewed by qualified legal counsel"
+            }
+            
+            return strategy_result
+            
+        except Exception as e:
+            logger.error("Litigation strategy analysis failed", error=str(e))
+            raise
+    
+    async def generate_legal_memo(
+        self,
+        memo_request: Dict[str, Any]
+    ) -> Dict[str, Any]:
+        """Generate a legal memorandum"""
+        
+        memo_prompt = f"""
+        Generate a comprehensive legal memorandum with the following requirements:
+        
+        Memo Request:
+        {json.dumps(memo_request, indent=2)}
+        
+        Structure the memo with:
+        1. MEMORANDUM HEADER (To, From, Date, Re)
+        2. EXECUTIVE SUMMARY
+        3. STATEMENT OF FACTS
+        4. LEGAL ANALYSIS
+        5. CONCLUSION AND RECOMMENDATIONS
+        
+        Legal Analysis should include:
+        - Applicable law and regulations
+        - Case law analysis
+        - Legal arguments
+        - Risk assessment
+        - Alternative approaches
+        
+        Use proper legal citation format and maintain professional tone throughout.
+        """
+        
+        try:
+            response = await self.generate_text(
+                prompt=memo_prompt,
+                temperature=0.3,
+                max_tokens=4000
+            )
+            
+            return {
+                "memorandum": response.content,
+                "memo_type": memo_request.get("memo_type", "general"),
+                "client": memo_request.get("client", "unknown"),
+                "metadata": {
+                    "provider": response.provider.value,
+                    "model": response.model,
+                    "processing_time": response.processing_time,
+                    "tokens_used": response.tokens_used,
+                    "generated_date": asyncio.get_event_loop().time(),
+                    "disclaimer": "This memorandum is AI-generated and requires review by qualified legal counsel"
+                }
+            }
+            
+        except Exception as e:
+            logger.error("Legal memo generation failed", error=str(e))
             raise
     
     def get_available_providers(self) -> List[AIProvider]:
