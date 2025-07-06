@@ -1,7 +1,7 @@
 "use client";
 
 import React from "react";
-import { Menu, Bell, Search, Settings, LogOut, User } from "lucide-react";
+import { Menu, Bell, Settings, LogOut, User } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -12,7 +12,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
-import { Input } from "@/components/ui/input";
+import { GlobalSearch } from "@/components/global-search";
 import { useAuth } from "@/lib/auth";
 import { useRouter } from "next/navigation";
 
@@ -50,12 +50,8 @@ export function Header({ onMenuClick }: HeaderProps) {
           <Menu className="h-5 w-5" />
         </Button>
 
-        <div className="relative w-96 max-w-sm">
-          <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-          <Input
-            placeholder="Search clients, matters, contracts..."
-            className="pl-10"
-          />
+        <div className="w-96 max-w-sm">
+          <GlobalSearch className="w-full" />
         </div>
       </div>
 

@@ -7,8 +7,12 @@ import asyncio
 from typing import Dict, List, Optional, Any, Union
 from enum import Enum
 import structlog
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 import json
+import time
+from datetime import datetime, timedelta
+import aiohttp
+from contextlib import asynccontextmanager
 
 from app.core.config import settings, Constants
 
@@ -30,58 +34,155 @@ class AIResponse:
     cost: Optional[float] = None
     processing_time: Optional[float] = None
     metadata: Optional[Dict[str, Any]] = None
+    request_id: Optional[str] = None
+    timestamp: datetime = field(default_factory=datetime.utcnow)
+    cached: bool = False
+
+
+@dataclass
+class CircuitBreakerState:
+    failure_count: int = 0
+    last_failure_time: Optional[datetime] = None
+    state: str = "CLOSED"  # CLOSED, OPEN, HALF_OPEN
+    failure_threshold: int = 5
+    timeout_seconds: int = 60
+
+
+class CircuitBreaker:
+    def __init__(self, failure_threshold: int = 5, timeout_seconds: int = 60):
+        self.states: Dict[AIProvider, CircuitBreakerState] = {
+            provider: CircuitBreakerState(failure_threshold=failure_threshold, timeout_seconds=timeout_seconds)
+            for provider in AIProvider
+        }
+        self.logger = structlog.get_logger()
+    
+    def can_execute(self, provider: AIProvider) -> bool:
+        state = self.states[provider]
+        
+        if state.state == "CLOSED":
+            return True
+        elif state.state == "OPEN":
+            if state.last_failure_time and \
+               datetime.utcnow() - state.last_failure_time > timedelta(seconds=state.timeout_seconds):
+                state.state = "HALF_OPEN"
+                self.logger.info(f"Circuit breaker for {provider} moved to HALF_OPEN")
+                return True
+            return False
+        elif state.state == "HALF_OPEN":
+            return True
+        return False
+    
+    def record_success(self, provider: AIProvider):
+        state = self.states[provider]
+        state.failure_count = 0
+        state.state = "CLOSED"
+        state.last_failure_time = None
+    
+    def record_failure(self, provider: AIProvider):
+        state = self.states[provider]
+        state.failure_count += 1
+        state.last_failure_time = datetime.utcnow()
+        
+        if state.failure_count >= state.failure_threshold:
+            state.state = "OPEN"
+            self.logger.warning(f"Circuit breaker for {provider} opened due to {state.failure_count} failures")
+    
+    def get_state(self, provider: AIProvider) -> str:
+        return self.states[provider].state
 
 
 class AIOrchestrator:
-    """Orchestrator for multiple AI providers"""
+    """Enhanced AI Orchestrator with circuit breaker, caching, and error recovery"""
     
     def __init__(self):
         self.providers = {}
         self.default_provider = AIProvider.OPENAI
         self.is_initialized = False
+        self.circuit_breaker = CircuitBreaker()
+        self.response_cache: Dict[str, AIResponse] = {}
+        self.cache_ttl = 300  # 5 minutes
+        self.health_status: Dict[AIProvider, bool] = {}
+        self.last_health_check: Dict[AIProvider, datetime] = {}
+        self.request_count: Dict[AIProvider, int] = {provider: 0 for provider in AIProvider}
+        self.error_count: Dict[AIProvider, int] = {provider: 0 for provider in AIProvider}
         
     async def initialize(self) -> None:
         """Initialize AI providers"""
         try:
-            # Initialize OpenAI
+            # Initialize OpenAI with modern client
             if settings.OPENAI_API_KEY:
                 try:
-                    import openai
-                    openai.api_key = settings.OPENAI_API_KEY
-                    self.providers[AIProvider.OPENAI] = openai
-                    logger.info("OpenAI client initialized")
+                    from openai import AsyncOpenAI
+                    client = AsyncOpenAI(api_key=settings.OPENAI_API_KEY)
+                    
+                    # Test the connection
+                    await self._test_openai_connection(client)
+                    
+                    self.providers[AIProvider.OPENAI] = client
+                    self.health_status[AIProvider.OPENAI] = True
+                    self.last_health_check[AIProvider.OPENAI] = datetime.utcnow()
+                    logger.info("OpenAI client initialized and tested")
                 except ImportError:
                     logger.warning("OpenAI library not available")
+                    self.health_status[AIProvider.OPENAI] = False
                 except Exception as e:
                     logger.error("Failed to initialize OpenAI", error=str(e))
+                    self.health_status[AIProvider.OPENAI] = False
             
             # Initialize Anthropic
             if settings.ANTHROPIC_API_KEY:
                 try:
                     import anthropic
-                    self.providers[AIProvider.ANTHROPIC] = anthropic.Anthropic(
-                        api_key=settings.ANTHROPIC_API_KEY
-                    )
-                    logger.info("Anthropic client initialized")
+                    client = anthropic.AsyncAnthropic(api_key=settings.ANTHROPIC_API_KEY)
+                    
+                    # Test the connection
+                    await self._test_anthropic_connection(client)
+                    
+                    self.providers[AIProvider.ANTHROPIC] = client
+                    self.health_status[AIProvider.ANTHROPIC] = True
+                    self.last_health_check[AIProvider.ANTHROPIC] = datetime.utcnow()
+                    logger.info("Anthropic client initialized and tested")
                 except ImportError:
                     logger.warning("Anthropic library not available")
+                    self.health_status[AIProvider.ANTHROPIC] = False
                 except Exception as e:
                     logger.error("Failed to initialize Anthropic", error=str(e))
+                    self.health_status[AIProvider.ANTHROPIC] = False
             
             # Initialize Google AI
             if settings.GOOGLE_API_KEY:
                 try:
                     import google.generativeai as genai
                     genai.configure(api_key=settings.GOOGLE_API_KEY)
+                    
+                    # Test the connection
+                    await self._test_google_connection(genai)
+                    
                     self.providers[AIProvider.GOOGLE] = genai
-                    logger.info("Google AI client initialized")
+                    self.health_status[AIProvider.GOOGLE] = True
+                    self.last_health_check[AIProvider.GOOGLE] = datetime.utcnow()
+                    logger.info("Google AI client initialized and tested")
                 except ImportError:
                     logger.warning("Google AI library not available")
+                    self.health_status[AIProvider.GOOGLE] = False
                 except Exception as e:
                     logger.error("Failed to initialize Google AI", error=str(e))
+                    self.health_status[AIProvider.GOOGLE] = False
             
             self.is_initialized = True
-            logger.info("AI Orchestrator initialized", providers=list(self.providers.keys()))
+            healthy_providers = [p for p, status in self.health_status.items() if status]
+            logger.info(
+                "AI Orchestrator initialized", 
+                providers=list(self.providers.keys()),
+                healthy_providers=healthy_providers,
+                total_providers=len(self.providers)
+            )
+            
+            # Set default provider to first healthy one if current default is unhealthy
+            if self.default_provider not in healthy_providers and healthy_providers:
+                old_default = self.default_provider
+                self.default_provider = healthy_providers[0]
+                logger.info(f"Default provider changed from {old_default} to {self.default_provider}")
             
         except Exception as e:
             logger.error("Failed to initialize AI Orchestrator", error=str(e))
@@ -94,48 +195,108 @@ class AIOrchestrator:
         model: Optional[str] = None,
         max_tokens: Optional[int] = None,
         temperature: Optional[float] = None,
-        context: Optional[Dict[str, Any]] = None
+        context: Optional[Dict[str, Any]] = None,
+        use_cache: bool = True,
+        retry_count: int = 3
     ) -> AIResponse:
-        """Generate text using specified AI provider"""
+        """Generate text using specified AI provider with enhanced error handling"""
         
         if not self.is_initialized:
             await self.initialize()
+        
+        # Input sanitization
+        prompt = self._sanitize_prompt(prompt)
         
         provider = provider or self.default_provider
         max_tokens = max_tokens or settings.AI_MAX_TOKENS
         temperature = temperature or settings.AI_TEMPERATURE
         
-        if provider not in self.providers:
-            raise ValueError(f"Provider {provider} not available")
+        # Check cache first
+        if use_cache:
+            cache_key = self._generate_cache_key(prompt, provider, model, max_tokens, temperature)
+            cached_response = self._get_cached_response(cache_key)
+            if cached_response:
+                cached_response.cached = True
+                logger.info("Returning cached response", provider=provider, cache_key=cache_key[:16])
+                return cached_response
         
-        try:
-            start_time = asyncio.get_event_loop().time()
-            
-            if provider == AIProvider.OPENAI:
-                response = await self._generate_openai(prompt, model, max_tokens, temperature)
-            elif provider == AIProvider.ANTHROPIC:
-                response = await self._generate_anthropic(prompt, model, max_tokens, temperature)
-            elif provider == AIProvider.GOOGLE:
-                response = await self._generate_google(prompt, model, max_tokens, temperature)
-            else:
-                raise ValueError(f"Unsupported provider: {provider}")
-            
-            processing_time = asyncio.get_event_loop().time() - start_time
-            response.processing_time = processing_time
-            
-            logger.info(
-                "AI text generated",
-                provider=provider,
-                model=response.model,
-                tokens_used=response.tokens_used,
-                processing_time=processing_time
-            )
-            
-            return response
-            
-        except Exception as e:
-            logger.error("Failed to generate text", provider=provider, error=str(e))
-            raise
+        # Find available provider with fallback
+        available_provider = self._get_available_provider(provider)
+        if not available_provider:
+            raise RuntimeError("No AI providers available")
+        
+        # Execute with retry logic
+        last_exception = None
+        for attempt in range(retry_count):
+            try:
+                # Check circuit breaker
+                if not self.circuit_breaker.can_execute(available_provider):
+                    if attempt < retry_count - 1:
+                        available_provider = self._get_fallback_provider(available_provider)
+                        if not available_provider:
+                            raise RuntimeError("All AI providers unavailable")
+                        continue
+                    else:
+                        raise RuntimeError(f"Circuit breaker open for {available_provider}")
+                
+                start_time = time.time()
+                self.request_count[available_provider] += 1
+                
+                # Generate with specific provider
+                if available_provider == AIProvider.OPENAI:
+                    response = await self._generate_openai(prompt, model, max_tokens, temperature)
+                elif available_provider == AIProvider.ANTHROPIC:
+                    response = await self._generate_anthropic(prompt, model, max_tokens, temperature)
+                elif available_provider == AIProvider.GOOGLE:
+                    response = await self._generate_google(prompt, model, max_tokens, temperature)
+                else:
+                    raise ValueError(f"Unsupported provider: {available_provider}")
+                
+                processing_time = time.time() - start_time
+                response.processing_time = processing_time
+                
+                # Record success
+                self.circuit_breaker.record_success(available_provider)
+                
+                # Cache response
+                if use_cache:
+                    self._cache_response(cache_key, response)
+                
+                logger.info(
+                    "AI text generated successfully",
+                    provider=available_provider,
+                    model=response.model,
+                    tokens_used=response.tokens_used,
+                    processing_time=processing_time,
+                    attempt=attempt + 1
+                )
+                
+                return response
+                
+            except Exception as e:
+                last_exception = e
+                self.error_count[available_provider] += 1
+                self.circuit_breaker.record_failure(available_provider)
+                
+                logger.warning(
+                    "AI generation attempt failed",
+                    provider=available_provider,
+                    attempt=attempt + 1,
+                    error=str(e)
+                )
+                
+                if attempt < retry_count - 1:
+                    # Try fallback provider
+                    fallback_provider = self._get_fallback_provider(available_provider)
+                    if fallback_provider:
+                        available_provider = fallback_provider
+                        await asyncio.sleep(2 ** attempt)  # Exponential backoff
+                    else:
+                        await asyncio.sleep(1)  # Brief delay before retry
+                
+        # All attempts failed
+        logger.error("All AI generation attempts failed", provider=provider, final_error=str(last_exception))
+        raise last_exception or RuntimeError("AI generation failed after all retries")
     
     async def _generate_openai(
         self,
@@ -144,13 +305,13 @@ class AIOrchestrator:
         max_tokens: int,
         temperature: float
     ) -> AIResponse:
-        """Generate text using OpenAI"""
-        import openai
+        """Generate text using OpenAI with modern client"""
         
         model = model or Constants.DEFAULT_MODELS["openai"]
+        client = self.providers[AIProvider.OPENAI]
         
         try:
-            response = await openai.ChatCompletion.acreate(
+            response = await client.chat.completions.create(
                 model=model,
                 messages=[{"role": "user", "content": prompt}],
                 max_tokens=max_tokens,
@@ -166,15 +327,17 @@ class AIOrchestrator:
                 provider=AIProvider.OPENAI,
                 model=model,
                 tokens_used=tokens_used,
+                request_id=response.id,
                 metadata={
                     "finish_reason": response.choices[0].finish_reason,
                     "prompt_tokens": response.usage.prompt_tokens,
-                    "completion_tokens": response.usage.completion_tokens
+                    "completion_tokens": response.usage.completion_tokens,
+                    "system_fingerprint": getattr(response, 'system_fingerprint', None)
                 }
             )
             
         except Exception as e:
-            logger.error("OpenAI generation failed", error=str(e))
+            logger.error("OpenAI generation failed", error=str(e), model=model)
             raise
     
     async def _generate_anthropic(
@@ -257,6 +420,256 @@ class AIOrchestrator:
         except Exception as e:
             logger.error("Google AI generation failed", error=str(e))
             raise
+    
+    # =============================================================================
+    # CONNECTION TESTING METHODS
+    # =============================================================================
+    
+    async def _test_openai_connection(self, client) -> bool:
+        """Test OpenAI connection with a simple request"""
+        try:
+            response = await client.chat.completions.create(
+                model="gpt-3.5-turbo",
+                messages=[{"role": "user", "content": "Test"}],
+                max_tokens=1,
+                timeout=10
+            )
+            return bool(response.choices)
+        except Exception as e:
+            logger.warning("OpenAI connection test failed", error=str(e))
+            return False
+    
+    async def _test_anthropic_connection(self, client) -> bool:
+        """Test Anthropic connection with a simple request"""
+        try:
+            response = await client.messages.create(
+                model="claude-3-haiku-20240307",
+                max_tokens=1,
+                messages=[{"role": "user", "content": "Test"}]
+            )
+            return bool(response.content)
+        except Exception as e:
+            logger.warning("Anthropic connection test failed", error=str(e))
+            return False
+    
+    async def _test_google_connection(self, genai) -> bool:
+        """Test Google AI connection with a simple request"""
+        try:
+            model = genai.GenerativeModel("gemini-pro")
+            response = await model.generate_content_async("Test")
+            return bool(response.text)
+        except Exception as e:
+            logger.warning("Google AI connection test failed", error=str(e))
+            return False
+    
+    # =============================================================================
+    # HELPER METHODS
+    # =============================================================================
+    
+    def _sanitize_prompt(self, prompt: str) -> str:
+        """Sanitize input prompt to prevent injection attacks"""
+        if not prompt or not isinstance(prompt, str):
+            raise ValueError("Prompt must be a non-empty string")
+        
+        # Remove potentially dangerous patterns
+        dangerous_patterns = [
+            "<!--", "-->", "<script>", "</script>", 
+            "javascript:", "data:", "vbscript:",
+            "eval(", "exec(", "Function(",
+        ]
+        
+        sanitized = prompt
+        for pattern in dangerous_patterns:
+            sanitized = sanitized.replace(pattern, "")
+        
+        # Limit length
+        max_length = 50000  # Reasonable limit for prompts
+        if len(sanitized) > max_length:
+            sanitized = sanitized[:max_length]
+            logger.warning("Prompt truncated due to length", original_length=len(prompt), truncated_length=len(sanitized))
+        
+        return sanitized.strip()
+    
+    def _generate_cache_key(self, prompt: str, provider: AIProvider, model: Optional[str], 
+                           max_tokens: int, temperature: float) -> str:
+        """Generate cache key for response caching"""
+        import hashlib
+        
+        key_data = f"{prompt}|{provider}|{model}|{max_tokens}|{temperature}"
+        return hashlib.md5(key_data.encode()).hexdigest()
+    
+    def _get_cached_response(self, cache_key: str) -> Optional[AIResponse]:
+        """Get cached response if still valid"""
+        if cache_key in self.response_cache:
+            response = self.response_cache[cache_key]
+            # Check if cache is still valid
+            if (datetime.utcnow() - response.timestamp).total_seconds() < self.cache_ttl:
+                return response
+            else:
+                # Remove expired cache entry
+                del self.response_cache[cache_key]
+        return None
+    
+    def _cache_response(self, cache_key: str, response: AIResponse):
+        """Cache response for future use"""
+        # Limit cache size
+        if len(self.response_cache) > 1000:
+            # Remove oldest entries
+            sorted_cache = sorted(
+                self.response_cache.items(),
+                key=lambda x: x[1].timestamp
+            )
+            for old_key, _ in sorted_cache[:100]:  # Remove oldest 100 entries
+                del self.response_cache[old_key]
+        
+        self.response_cache[cache_key] = response
+    
+    def _get_available_provider(self, preferred_provider: AIProvider) -> Optional[AIProvider]:
+        """Get available provider, preferring the specified one"""
+        # Check if preferred provider is available and healthy
+        if (preferred_provider in self.providers and 
+            self.health_status.get(preferred_provider, False) and
+            self.circuit_breaker.can_execute(preferred_provider)):
+            return preferred_provider
+        
+        # Find any available provider
+        for provider in self.providers:
+            if (self.health_status.get(provider, False) and
+                self.circuit_breaker.can_execute(provider)):
+                return provider
+        
+        return None
+    
+    def _get_fallback_provider(self, current_provider: AIProvider) -> Optional[AIProvider]:
+        """Get fallback provider when current one fails"""
+        # Define fallback order
+        fallback_order = {
+            AIProvider.OPENAI: [AIProvider.ANTHROPIC, AIProvider.GOOGLE],
+            AIProvider.ANTHROPIC: [AIProvider.OPENAI, AIProvider.GOOGLE],
+            AIProvider.GOOGLE: [AIProvider.OPENAI, AIProvider.ANTHROPIC]
+        }
+        
+        for fallback in fallback_order.get(current_provider, []):
+            if (fallback in self.providers and 
+                self.health_status.get(fallback, False) and
+                self.circuit_breaker.can_execute(fallback)):
+                logger.info(f"Switching from {current_provider} to fallback {fallback}")
+                return fallback
+        
+        return None
+    
+    # =============================================================================
+    # HEALTH CHECK AND MONITORING
+    # =============================================================================
+    
+    async def health_check(self) -> Dict[str, Any]:
+        """Comprehensive health check for all providers"""
+        health_results = {}
+        overall_healthy = True
+        
+        for provider in self.providers:
+            try:
+                start_time = time.time()
+                
+                # Test simple generation
+                test_prompt = "Hello"
+                response = await self.generate_text(
+                    prompt=test_prompt,
+                    provider=provider,
+                    max_tokens=1,
+                    use_cache=False,
+                    retry_count=1
+                )
+                
+                response_time = time.time() - start_time
+                
+                health_results[provider.value] = {
+                    "status": "healthy",
+                    "response_time": round(response_time, 3),
+                    "last_check": datetime.utcnow().isoformat(),
+                    "circuit_breaker_state": self.circuit_breaker.get_state(provider),
+                    "request_count": self.request_count[provider],
+                    "error_count": self.error_count[provider]
+                }
+                
+                self.health_status[provider] = True
+                self.last_health_check[provider] = datetime.utcnow()
+                
+            except Exception as e:
+                overall_healthy = False
+                health_results[provider.value] = {
+                    "status": "unhealthy",
+                    "error": str(e),
+                    "last_check": datetime.utcnow().isoformat(),
+                    "circuit_breaker_state": self.circuit_breaker.get_state(provider),
+                    "request_count": self.request_count[provider],
+                    "error_count": self.error_count[provider]
+                }
+                
+                self.health_status[provider] = False
+                self.last_health_check[provider] = datetime.utcnow()
+        
+        return {
+            "overall_status": "healthy" if overall_healthy else "degraded",
+            "providers": health_results,
+            "cache_size": len(self.response_cache),
+            "total_requests": sum(self.request_count.values()),
+            "total_errors": sum(self.error_count.values()),
+            "timestamp": datetime.utcnow().isoformat()
+        }
+    
+    async def get_metrics(self) -> Dict[str, Any]:
+        """Get comprehensive metrics for monitoring"""
+        metrics = {
+            "request_counts": dict(self.request_count),
+            "error_counts": dict(self.error_count),
+            "error_rates": {},
+            "circuit_breaker_states": {},
+            "health_status": dict(self.health_status),
+            "cache_metrics": {
+                "size": len(self.response_cache),
+                "ttl_seconds": self.cache_ttl
+            },
+            "last_health_checks": {
+                provider.value: check_time.isoformat() if check_time else None
+                for provider, check_time in self.last_health_check.items()
+            }
+        }
+        
+        # Calculate error rates
+        for provider in AIProvider:
+            total_requests = self.request_count[provider]
+            if total_requests > 0:
+                error_rate = self.error_count[provider] / total_requests
+                metrics["error_rates"][provider.value] = round(error_rate, 4)
+            else:
+                metrics["error_rates"][provider.value] = 0.0
+            
+            metrics["circuit_breaker_states"][provider.value] = self.circuit_breaker.get_state(provider)
+        
+        return metrics
+    
+    async def shutdown(self):
+        """Cleanup resources on shutdown"""
+        logger.info("Shutting down AI Orchestrator")
+        
+        # Clear cache
+        self.response_cache.clear()
+        
+        # Close provider connections if needed
+        for provider, client in self.providers.items():
+            try:
+                if hasattr(client, 'close'):
+                    await client.close()
+                elif hasattr(client, 'aclose'):
+                    await client.aclose()
+            except Exception as e:
+                logger.warning(f"Error closing {provider} client", error=str(e))
+        
+        self.providers.clear()
+        self.is_initialized = False
+        
+        logger.info("AI Orchestrator shutdown completed")
     
     async def analyze_contract(
         self,

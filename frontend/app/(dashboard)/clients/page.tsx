@@ -1,10 +1,18 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Badge } from "@/components/ui/badge";
+import { 
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { 
   Dialog,
   DialogContent,
@@ -14,139 +22,253 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog";
 import { 
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuLabel,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
-import { Badge } from "@/components/ui/badge";
-import { 
   Users, 
   Plus, 
-  Search, 
-  MoreHorizontal,
-  Phone,
-  Mail,
-  Building,
-  Calendar,
-  Edit,
-  Trash,
-  Eye
+  Download,
+  Shield,
+  AlertTriangle,
+  TrendingUp,
+  Briefcase,
+  RefreshCw
 } from "lucide-react";
-
-// Mock data for clients
-const clients = [
-  {
-    id: 1,
-    name: "Johnson & Associates",
-    type: "Corporate",
-    contact_person: "Sarah Johnson",
-    email: "sarah@johnson-associates.com",
-    phone: "+1 (555) 123-4567",
-    status: "active",
-    matters_count: 5,
-    created_at: "2024-01-15",
-    last_activity: "2024-01-20",
-    revenue: "$45,000",
-  },
-  {
-    id: 2,
-    name: "TechStart Inc.",
-    type: "Startup",
-    contact_person: "Mike Chen",
-    email: "mike@techstart.com",
-    phone: "+1 (555) 987-6543",
-    status: "active",
-    matters_count: 3,
-    created_at: "2024-01-10",
-    last_activity: "2024-01-18",
-    revenue: "$28,500",
-  },
-  {
-    id: 3,
-    name: "Global Retail Corp",
-    type: "Enterprise",
-    contact_person: "Emma Wilson",
-    email: "emma@globalretail.com",
-    phone: "+1 (555) 456-7890",
-    status: "inactive",
-    matters_count: 1,
-    created_at: "2023-12-20",
-    last_activity: "2024-01-05",
-    revenue: "$12,000",
-  },
-];
+import { AdvancedDataTable } from "@/components/data-table/advanced-data-table";
+import { createClientColumns, clientFilters } from "@/components/data-table/columns";
+import { toast } from "sonner";
+import { apiClient, type Client, type ClientCreate, type ClientSearchParams } from "@/lib/api";
 
 export default function ClientsPage() {
-  const [searchTerm, setSearchTerm] = useState("");
+  // State management for real API integration
+  const [clients, setClients] = useState<Client[]>([]);
+  const [loading, setLoading] = useState(true);
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
-  const [newClient, setNewClient] = useState({
+  const [isEditModalOpen, setIsEditModalOpen] = useState(false);
+  const [editingClient, setEditingClient] = useState<Client | null>(null);
+  const [pagination, setPagination] = useState({
+    total: 0,
+    page: 1,
+    per_page: 20,
+    has_next: false,
+    has_prev: false
+  });
+
+  const [newClient, setNewClient] = useState<ClientCreate>({
     name: "",
-    type: "Corporate",
-    contact_person: "",
     email: "",
     phone: "",
     address: "",
+    industry: "",
+    website: "",
+    description: "",
+    status: "ACTIVE",
+    risk_level: "MEDIUM",
+    billing_contact: "",
+    primary_contact: "",
+    business_unit: "",
+    annual_revenue: undefined,
+    employee_count: undefined,
+    jurisdiction: "",
   });
 
-  const filteredClients = clients.filter(client =>
-    client.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    client.contact_person.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    client.email.toLowerCase().includes(searchTerm.toLowerCase())
-  );
+  // Load clients from API
+  const loadClients = async () => {
+    try {
+      setLoading(true);
+      const searchParams: ClientSearchParams = {
+        limit: 100, // Load more for data table
+      };
 
-  const getStatusColor = (status: string) => {
-    switch (status) {
-      case "active":
-        return "bg-green-100 text-green-800";
-      case "inactive":
-        return "bg-gray-100 text-gray-800";
-      case "pending":
-        return "bg-yellow-100 text-yellow-800";
-      default:
-        return "bg-gray-100 text-gray-800";
+      const response = await apiClient.getClients(searchParams);
+      setClients(response.clients);
+      setPagination({
+        total: response.total,
+        page: response.page,
+        per_page: response.per_page,
+        has_next: response.has_next,
+        has_prev: response.has_prev
+      });
+    } catch (error) {
+      console.error("Failed to load clients:", error);
+      toast.error("Failed to load clients");
+    } finally {
+      setLoading(false);
     }
   };
 
-  const handleCreateClient = (e: React.FormEvent) => {
+  // Load clients on component mount
+  useEffect(() => {
+    loadClients();
+  }, []);
+
+  const getStatusColor = (status: string) => {
+    switch (status) {
+      case "ACTIVE":
+        return "bg-counselflow-success/20 text-counselflow-success border-counselflow-success/30";
+      case "INACTIVE":
+        return "bg-gray-100 text-gray-700 border-gray-300";
+      case "POTENTIAL":
+        return "bg-counselflow-warning/20 text-counselflow-warning border-counselflow-warning/30";
+      case "FORMER":
+        return "bg-red-100 text-red-700 border-red-300";
+      default:
+        return "bg-gray-100 text-gray-700 border-gray-300";
+    }
+  };
+
+  const getRiskColor = (riskLevel: string) => {
+    switch (riskLevel) {
+      case "LOW":
+        return "bg-green-100 text-green-700 border-green-300";
+      case "MEDIUM":
+        return "bg-yellow-100 text-yellow-700 border-yellow-300";
+      case "HIGH":
+        return "bg-orange-100 text-orange-700 border-orange-300";
+      case "CRITICAL":
+        return "bg-red-100 text-red-700 border-red-300";
+      default:
+        return "bg-gray-100 text-gray-700 border-gray-300";
+    }
+  };
+
+  const handleCreateClient = async (e: React.FormEvent) => {
     e.preventDefault();
-    // TODO: Implement client creation API call
-    console.log("Creating client:", newClient);
-    setIsCreateModalOpen(false);
+    try {
+      await apiClient.createClient(newClient);
+      toast.success("Client created successfully");
+      setIsCreateModalOpen(false);
+      resetClientForm();
+      loadClients(); // Reload the clients list
+    } catch (error) {
+      console.error("Failed to create client:", error);
+      toast.error("Failed to create client");
+    }
+  };
+
+  const handleEditClient = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingClient) return;
+    
+    try {
+      await apiClient.updateClient(editingClient.id, newClient);
+      toast.success("Client updated successfully");
+      setIsEditModalOpen(false);
+      setEditingClient(null);
+      resetClientForm();
+      loadClients(); // Reload the clients list
+    } catch (error) {
+      console.error("Failed to update client:", error);
+      toast.error("Failed to update client");
+    }
+  };
+
+  const handleDeleteClient = async (clientId: string) => {
+    if (!confirm("Are you sure you want to delete this client?")) return;
+    
+    try {
+      await apiClient.deleteClient(clientId);
+      toast.success("Client deleted successfully");
+      loadClients(); // Reload the clients list
+    } catch (error) {
+      console.error("Failed to delete client:", error);
+      toast.error("Failed to delete client");
+    }
+  };
+
+  const resetClientForm = () => {
     setNewClient({
       name: "",
-      type: "Corporate",
-      contact_person: "",
       email: "",
       phone: "",
       address: "",
+      industry: "",
+      website: "",
+      description: "",
+      status: "ACTIVE",
+      risk_level: "MEDIUM",
+      billing_contact: "",
+      primary_contact: "",
+      business_unit: "",
+      annual_revenue: undefined,
+      employee_count: undefined,
+      jurisdiction: "",
     });
   };
 
+  const openEditModal = (client: Client) => {
+    setEditingClient(client);
+    setNewClient({
+      name: client.name,
+      email: client.email || "",
+      phone: client.phone || "",
+      address: client.address || "",
+      industry: client.industry || "",
+      website: client.website || "",
+      description: client.description || "",
+      status: client.status,
+      risk_level: client.risk_level,
+      billing_contact: client.billing_contact || "",
+      primary_contact: client.primary_contact || "",
+      business_unit: client.business_unit || "",
+      annual_revenue: client.annual_revenue,
+      employee_count: client.employee_count,
+      jurisdiction: client.jurisdiction || "",
+    });
+    setIsEditModalOpen(true);
+  };
+
+  // Column configuration for data table
+  const columns = createClientColumns(
+    (client: Client) => {
+      // Handle view client
+      console.log("View client:", client);
+      // Navigate to client details page
+    },
+    (client: Client) => {
+      // Handle edit client
+      openEditModal(client);
+    },
+    (client: Client) => {
+      // Handle delete client
+      handleDeleteClient(client.id);
+    }
+  );
+
   return (
-    <div className="space-y-6">
-      {/* Header */}
-      <div className="flex justify-between items-center">
+    <div className="space-y-6 p-6 bg-gradient-to-br from-counselflow-light/10 to-white min-h-screen">
+      {/* Enhanced Header */}
+      <div className="flex flex-col lg:flex-row lg:justify-between lg:items-center gap-4">
         <div>
-          <h1 className="text-3xl font-bold tracking-tight">Clients</h1>
-          <p className="text-muted-foreground">
-            Manage your client relationships and information
+          <div className="flex items-center space-x-3 mb-2">
+            <div className="w-10 h-10 bg-counselflow-primary rounded-lg flex items-center justify-center">
+              <Users className="h-5 w-5 text-white" />
+            </div>
+            <h1 className="text-4xl font-bold tracking-tight text-counselflow-dark">Client Management</h1>
+          </div>
+          <p className="text-lg text-counselflow-neutral">
+            Manage enterprise client relationships with AI-powered insights
           </p>
         </div>
-        <Dialog open={isCreateModalOpen} onOpenChange={setIsCreateModalOpen}>
-          <DialogTrigger asChild>
-            <Button>
-              <Plus className="h-4 w-4 mr-2" />
-              Add Client
-            </Button>
-          </DialogTrigger>
-          <DialogContent className="sm:max-w-[425px]">
-            <DialogHeader>
-              <DialogTitle>Add New Client</DialogTitle>
-              <DialogDescription>
-                Create a new client profile. Fill in the required information below.
+        
+        <div className="flex items-center space-x-3">
+          <Button variant="outline" onClick={loadClients} className="border-counselflow-primary/30">
+            <RefreshCw className="h-4 w-4 mr-2" />
+            Refresh
+          </Button>
+          <Button variant="outline" className="border-counselflow-primary/30">
+            <Download className="h-4 w-4 mr-2" />
+            Export
+          </Button>
+          <Dialog open={isCreateModalOpen} onOpenChange={setIsCreateModalOpen}>
+            <DialogTrigger asChild>
+              <Button className="bg-counselflow-primary hover:bg-counselflow-dark">
+                <Plus className="h-4 w-4 mr-2" />
+                Add Client
+              </Button>
+            </DialogTrigger>
+            <DialogContent className="sm:max-w-[600px] max-h-[80vh] overflow-y-auto">
+              <DialogHeader>
+                <DialogTitle className="text-counselflow-dark">Add New Client</DialogTitle>
+                <DialogDescription className="text-counselflow-neutral">
+                  Create a new client profile with comprehensive information and risk assessment.
               </DialogDescription>
             </DialogHeader>
             <form onSubmit={handleCreateClient} className="space-y-4">
@@ -161,28 +283,21 @@ export default function ClientsPage() {
                 />
               </div>
               <div className="space-y-2">
-                <Label htmlFor="client-type">Client Type</Label>
-                <select
-                  id="client-type"
-                  value={newClient.type}
-                  onChange={(e) => setNewClient({ ...newClient, type: e.target.value })}
-                  className="w-full p-2 border border-input bg-background rounded-md"
-                >
-                  <option value="Corporate">Corporate</option>
-                  <option value="Individual">Individual</option>
-                  <option value="Startup">Startup</option>
-                  <option value="Enterprise">Enterprise</option>
-                  <option value="Non-Profit">Non-Profit</option>
-                </select>
+                <Label htmlFor="industry">Industry</Label>
+                <Input
+                  id="industry"
+                  value={newClient.industry}
+                  onChange={(e) => setNewClient({ ...newClient, industry: e.target.value })}
+                  placeholder="Client industry"
+                />
               </div>
               <div className="space-y-2">
-                <Label htmlFor="contact-person">Contact Person *</Label>
+                <Label htmlFor="primary-contact">Primary Contact</Label>
                 <Input
-                  id="contact-person"
-                  value={newClient.contact_person}
-                  onChange={(e) => setNewClient({ ...newClient, contact_person: e.target.value })}
+                  id="primary-contact"
+                  value={newClient.primary_contact}
+                  onChange={(e) => setNewClient({ ...newClient, primary_contact: e.target.value })}
                   placeholder="Primary contact name"
-                  required
                 />
               </div>
               <div className="space-y-2">
@@ -220,113 +335,86 @@ export default function ClientsPage() {
         </Dialog>
       </div>
 
-      {/* Search and Stats */}
-      <div className="flex flex-col sm:flex-row gap-4 items-start sm:items-center justify-between">
-        <div className="relative flex-1 max-w-sm">
-          <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-muted-foreground h-4 w-4" />
-          <Input
-            placeholder="Search clients..."
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
-            className="pl-10"
-          />
-        </div>
-        <div className="flex gap-4 text-sm text-muted-foreground">
-          <span>Total: {clients.length}</span>
-          <span>Active: {clients.filter(c => c.status === "active").length}</span>
-          <span>Inactive: {clients.filter(c => c.status === "inactive").length}</span>
-        </div>
+      {/* Stats Cards */}
+      <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-4">
+        <Card className="border-0 shadow-lg bg-white/80 backdrop-blur-sm">
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium text-counselflow-dark">Total Clients</CardTitle>
+            <Users className="h-4 w-4 text-counselflow-primary" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold text-counselflow-dark">{pagination.total}</div>
+            <p className="text-xs text-counselflow-neutral">
+              {clients.filter(c => c.status === 'ACTIVE').length} active
+            </p>
+          </CardContent>
+        </Card>
+
+        <Card className="border-0 shadow-lg bg-white/80 backdrop-blur-sm">
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium text-counselflow-dark">High Risk</CardTitle>
+            <AlertTriangle className="h-4 w-4 text-counselflow-warning" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold text-counselflow-dark">
+              {clients.filter(c => ['HIGH', 'CRITICAL'].includes(c.risk_level)).length}
+            </div>
+            <p className="text-xs text-counselflow-neutral">
+              Requires attention
+            </p>
+          </CardContent>
+        </Card>
+
+        <Card className="border-0 shadow-lg bg-white/80 backdrop-blur-sm">
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium text-counselflow-dark">Total Matters</CardTitle>
+            <Briefcase className="h-4 w-4 text-counselflow-success" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold text-counselflow-dark">
+              {clients.reduce((sum, c) => sum + (c.matters_count || 0), 0)}
+            </div>
+            <p className="text-xs text-counselflow-neutral">
+              Across all clients
+            </p>
+          </CardContent>
+        </Card>
+
+        <Card className="border-0 shadow-lg bg-white/80 backdrop-blur-sm">
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium text-counselflow-dark">Revenue</CardTitle>
+            <TrendingUp className="h-4 w-4 text-counselflow-bright" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold text-counselflow-dark">
+              {clients.reduce((sum, c) => sum + (c.annual_revenue || 0), 0).toLocaleString('en-US', {
+                style: 'currency',
+                currency: 'USD',
+                maximumFractionDigits: 0
+              })}
+            </div>
+            <p className="text-xs text-counselflow-neutral">
+              Annual revenue
+            </p>
+          </CardContent>
+        </Card>
       </div>
 
-      {/* Clients Grid */}
-      <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
-        {filteredClients.map((client) => (
-          <Card key={client.id} className="relative">
-            <CardHeader className="pb-3">
-              <div className="flex items-start justify-between">
-                <div className="space-y-1">
-                  <CardTitle className="text-lg">{client.name}</CardTitle>
-                  <Badge variant="secondary" className="text-xs">
-                    {client.type}
-                  </Badge>
-                </div>
-                <DropdownMenu>
-                  <DropdownMenuTrigger asChild>
-                    <Button variant="ghost" size="icon" className="h-8 w-8">
-                      <MoreHorizontal className="h-4 w-4" />
-                    </Button>
-                  </DropdownMenuTrigger>
-                  <DropdownMenuContent align="end">
-                    <DropdownMenuLabel>Actions</DropdownMenuLabel>
-                    <DropdownMenuItem>
-                      <Eye className="h-4 w-4 mr-2" />
-                      View Details
-                    </DropdownMenuItem>
-                    <DropdownMenuItem>
-                      <Edit className="h-4 w-4 mr-2" />
-                      Edit Client
-                    </DropdownMenuItem>
-                    <DropdownMenuSeparator />
-                    <DropdownMenuItem className="text-red-600">
-                      <Trash className="h-4 w-4 mr-2" />
-                      Delete Client
-                    </DropdownMenuItem>
-                  </DropdownMenuContent>
-                </DropdownMenu>
-              </div>
-              <Badge className={getStatusColor(client.status)}>
-                {client.status}
-              </Badge>
-            </CardHeader>
-            <CardContent className="space-y-3">
-              <div className="space-y-2">
-                <div className="flex items-center text-sm">
-                  <Users className="h-4 w-4 mr-2 text-muted-foreground" />
-                  <span className="font-medium">{client.contact_person}</span>
-                </div>
-                <div className="flex items-center text-sm text-muted-foreground">
-                  <Mail className="h-4 w-4 mr-2" />
-                  <span className="truncate">{client.email}</span>
-                </div>
-                <div className="flex items-center text-sm text-muted-foreground">
-                  <Phone className="h-4 w-4 mr-2" />
-                  <span>{client.phone}</span>
-                </div>
-              </div>
-              
-              <div className="pt-2 border-t">
-                <div className="grid grid-cols-2 gap-4 text-sm">
-                  <div>
-                    <span className="text-muted-foreground">Matters</span>
-                    <p className="font-medium">{client.matters_count}</p>
-                  </div>
-                  <div>
-                    <span className="text-muted-foreground">Revenue</span>
-                    <p className="font-medium">{client.revenue}</p>
-                  </div>
-                </div>
-              </div>
-              
-              <div className="text-xs text-muted-foreground">
-                <div className="flex items-center">
-                  <Calendar className="h-3 w-3 mr-1" />
-                  Last activity: {new Date(client.last_activity).toLocaleDateString()}
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-        ))}
-      </div>
-
-      {filteredClients.length === 0 && (
-        <div className="text-center py-12">
-          <Users className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
-          <h3 className="text-lg font-medium">No clients found</h3>
-          <p className="text-muted-foreground">
-            {searchTerm ? "Try adjusting your search terms" : "Get started by adding your first client"}
-          </p>
-        </div>
-      )}
+      {/* Advanced Data Table */}
+      <AdvancedDataTable
+        columns={columns}
+        data={clients}
+        loading={loading}
+        searchPlaceholder="Search clients by name, email, or industry..."
+        filters={clientFilters}
+        enableExport={true}
+        enableColumnVisibility={true}
+        enableGlobalFilter={true}
+        title="Client Directory"
+        description="Comprehensive client management with AI-powered insights and risk assessment"
+        onRefresh={loadClients}
+        className="bg-white rounded-lg shadow-sm"
+      />
     </div>
   );
 }

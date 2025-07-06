@@ -18,30 +18,43 @@ const config: Config = {
     },
     extend: {
       colors: {
+        // CounselFlow Brand Colors
+        counselflow: {
+          primary: "#26A69A",     // Primary Turquoise
+          dark: "#004D40",        // Dark Turquoise
+          light: "#B2DFDB",       // Light Turquoise
+          bright: "#00BCD4",      // Bright Turquoise
+          success: "#4CAF50",     // Success Green
+          warning: "#FF9800",     // Warning Orange
+          error: "#F44336",       // Error Red
+          neutral: "#757575",     // Neutral Gray
+          "light-gray": "#F5F5F5", // Light Gray
+        },
+        // Shadcn UI colors with CounselFlow theme
         border: "hsl(var(--border))",
         input: "hsl(var(--input))",
-        ring: "hsl(var(--ring))",
+        ring: "#26A69A",
         background: "hsl(var(--background))",
         foreground: "hsl(var(--foreground))",
         primary: {
-          DEFAULT: "hsl(var(--primary))",
-          foreground: "hsl(var(--primary-foreground))",
+          DEFAULT: "#26A69A",
+          foreground: "#FFFFFF",
         },
         secondary: {
-          DEFAULT: "hsl(var(--secondary))",
-          foreground: "hsl(var(--secondary-foreground))",
+          DEFAULT: "#B2DFDB",
+          foreground: "#004D40",
         },
         destructive: {
-          DEFAULT: "hsl(var(--destructive))",
-          foreground: "hsl(var(--destructive-foreground))",
+          DEFAULT: "#F44336",
+          foreground: "#FFFFFF",
         },
         muted: {
-          DEFAULT: "hsl(var(--muted))",
-          foreground: "hsl(var(--muted-foreground))",
+          DEFAULT: "#F5F5F5",
+          foreground: "#757575",
         },
         accent: {
-          DEFAULT: "hsl(var(--accent))",
-          foreground: "hsl(var(--accent-foreground))",
+          DEFAULT: "#00BCD4",
+          foreground: "#FFFFFF",
         },
         popover: {
           DEFAULT: "hsl(var(--popover))",

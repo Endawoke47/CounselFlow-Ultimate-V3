@@ -622,12 +622,43 @@ def require_permission(permission: Permission):
     def decorator(func):
         @wraps(func)
         async def wrapper(*args, **kwargs):
-            # In a real implementation, this would:
-            # 1. Extract user from JWT token
-            # 2. Check permission using rbac_service
-            # 3. Raise HTTPException if permission denied
+            from app.api.v1.auth import get_current_active_user
             
-            # For now, assume permission is granted
+            # Extract current_user from kwargs (passed via Depends)
+            current_user = None
+            for key, value in kwargs.items():
+                if hasattr(value, 'role') and hasattr(value, 'id'):
+                    current_user = value
+                    break
+            
+            if not current_user:
+                raise HTTPException(
+                    status_code=status.HTTP_401_UNAUTHORIZED,
+                    detail="Authentication required"
+                )
+            
+            # Check if user has the required permission
+            user_role = UserRole(current_user.role)
+            if not rbac_service.has_permission(user_role, permission):
+                logger.warning(
+                    "Permission denied",
+                    user_id=current_user.id,
+                    user_role=current_user.role,
+                    required_permission=permission.value
+                )
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail=f"Insufficient permissions: {permission.value}"
+                )
+            
+            # Log successful permission check
+            logger.info(
+                "Permission granted",
+                user_id=current_user.id,
+                user_role=current_user.role,
+                permission=permission.value
+            )
+            
             return await func(*args, **kwargs)
         
         return wrapper
@@ -640,12 +671,41 @@ def require_role(allowed_roles: List[UserRole]):
     def decorator(func):
         @wraps(func)
         async def wrapper(*args, **kwargs):
-            # In a real implementation, this would:
-            # 1. Extract user from JWT token
-            # 2. Check if user role is in allowed_roles
-            # 3. Raise HTTPException if role not allowed
+            # Extract current_user from kwargs (passed via Depends)
+            current_user = None
+            for key, value in kwargs.items():
+                if hasattr(value, 'role') and hasattr(value, 'id'):
+                    current_user = value
+                    break
             
-            # For now, assume role is allowed
+            if not current_user:
+                raise HTTPException(
+                    status_code=status.HTTP_401_UNAUTHORIZED,
+                    detail="Authentication required"
+                )
+            
+            # Check if user has an allowed role
+            user_role = UserRole(current_user.role)
+            if user_role not in allowed_roles:
+                logger.warning(
+                    "Role access denied",
+                    user_id=current_user.id,
+                    user_role=current_user.role,
+                    allowed_roles=[role.value for role in allowed_roles]
+                )
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail=f"Role not authorized. Required: {[role.value for role in allowed_roles]}"
+                )
+            
+            # Log successful role check
+            logger.info(
+                "Role access granted",
+                user_id=current_user.id,
+                user_role=current_user.role,
+                allowed_roles=[role.value for role in allowed_roles]
+            )
+            
             return await func(*args, **kwargs)
         
         return wrapper

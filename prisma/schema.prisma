@@ -67,6 +67,13 @@ model User {
   disputeCases     Dispute[]  @relation("DisputeAssignee")
   piaAssessments   PIA[]      @relation("PIACreator")
   
+  // Performance indexes
+  @@index([email, status])
+  @@index([role, status])
+  @@index([department])
+  @@index([createdAt])
+  @@index([lastLogin])
+  @@index([deletedAt])
   @@map("users")
 }
 
@@ -127,6 +134,13 @@ model Client {
   disputes        Dispute[]
   privacyEvents   PrivacyEvent[]
   
+  // Performance indexes
+  @@index([type, status])
+  @@index([status, createdAt])
+  @@index([industry])
+  @@index([name])
+  @@index([email])
+  @@index([deletedAt])
   @@map("clients")
 }
 
@@ -218,6 +232,17 @@ model Contract {
   obligations     Obligation[]
   timelineEvents  TimelineEvent[]
   
+  // Performance indexes
+  @@index([clientId, status])
+  @@index([type, status])
+  @@index([status, effectiveDate])
+  @@index([expirationDate])
+  @@index([aiRiskScore])
+  @@index([riskLevel])
+  @@index([createdById])
+  @@index([matterId])
+  @@index([createdAt])
+  @@index([deletedAt])
   @@map("contracts")
 }
 
@@ -238,6 +263,10 @@ model Clause {
   // Relationships
   contract          Contract   @relation(fields: [contractId], references: [id], onDelete: Cascade)
   
+  // Performance indexes
+  @@index([contractId, position])
+  @@index([clauseType])
+  @@index([riskRating])
   @@map("clauses")
 }
 
@@ -1299,51 +1328,4 @@ model SystemSetting {
 // =============================================================================
 // INDEXES FOR PERFORMANCE
 // =============================================================================
-
-// User indexes
-@@index([User.email])
-@@index([User.role])
-@@index([User.status])
-
-// Contract indexes
-@@index([Contract.clientId])
-@@index([Contract.status])
-@@index([Contract.type])
-@@index([Contract.expirationDate])
-@@index([Contract.createdAt])
-
-// Matter indexes
-@@index([Matter.clientId])
-@@index([Matter.status])
-@@index([Matter.assignedToId])
-@@index([Matter.type])
-
-// Document indexes
-@@index([Document.matterId])
-@@index([Document.type])
-@@index([Document.isPrivileged])
-
-// Risk indexes
-@@index([RiskEvent.riskScore])
-@@index([RiskEvent.status])
-@@index([RiskEvent.type])
-
-// Audit indexes
-@@index([AuditLog.userId])
-@@index([AuditLog.timestamp])
-@@index([AuditLog.eventType])
-
-// Task indexes
-@@index([Task.assignedToId])
-@@index([Task.dueDate])
-@@index([Task.status])
-
-// IP Asset indexes
-@@index([IPAsset.clientId])
-@@index([IPAsset.type])
-@@index([IPAsset.status])
-
-// Dispute indexes
-@@index([Dispute.clientId])
-@@index([Dispute.status])
-@@index([Dispute.type])
+// Note: Indexes are defined within each model using @@index directive

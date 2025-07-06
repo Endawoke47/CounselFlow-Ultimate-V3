@@ -64,12 +64,17 @@ export function Sidebar({ className, onItemClick }: SidebarProps) {
   const pathname = usePathname();
 
   return (
-    <div className={cn("flex h-full w-64 flex-col bg-card border-r", className)}>
+    <div className={cn("flex h-full w-64 flex-col bg-counselflow-dark border-r border-counselflow-primary/30", className)}>
       {/* Logo */}
-      <div className="flex h-16 items-center px-6">
-        <div className="flex items-center space-x-2">
-          <Scale className="h-8 w-8 text-primary" />
-          <span className="text-xl font-bold">CounselFlow</span>
+      <div className="flex h-16 items-center px-6 border-b border-counselflow-primary/30">
+        <div className="flex items-center space-x-3">
+          <div className="w-10 h-10 bg-counselflow-primary rounded-lg flex items-center justify-center shadow-lg">
+            <Scale className="h-6 w-6 text-white" />
+          </div>
+          <div>
+            <span className="text-xl font-bold text-white">CounselFlow</span>
+            <div className="text-xs text-counselflow-light opacity-75">Ultimate V3</div>
+          </div>
         </div>
       </div>
 
@@ -77,7 +82,7 @@ export function Sidebar({ className, onItemClick }: SidebarProps) {
       <nav className="flex-1 space-y-1 px-3 py-4 overflow-y-auto">
         {/* Core Modules */}
         <div className="space-y-1">
-          <h3 className="px-3 text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2">
+          <h3 className="px-3 text-xs font-semibold text-counselflow-light uppercase tracking-wider mb-2">
             Core Practice
           </h3>
           {coreModules.map((item) => {
@@ -90,8 +95,8 @@ export function Sidebar({ className, onItemClick }: SidebarProps) {
                 className={cn(
                   "group flex items-center px-3 py-2 text-sm font-medium rounded-md transition-colors",
                   isActive
-                    ? "bg-primary text-primary-foreground"
-                    : "text-muted-foreground hover:bg-accent hover:text-accent-foreground"
+                    ? "bg-counselflow-primary text-white shadow-lg"
+                    : "text-counselflow-light hover:bg-counselflow-primary/20 hover:text-white"
                 )}
               >
                 <item.icon className="mr-3 h-5 w-5 flex-shrink-0" />
@@ -103,7 +108,7 @@ export function Sidebar({ className, onItemClick }: SidebarProps) {
 
         {/* Legal Specialties */}
         <div className="pt-4">
-          <h3 className="px-3 text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2">
+          <h3 className="px-3 text-xs font-semibold text-counselflow-light uppercase tracking-wider mb-2">
             Legal Specialties
           </h3>
           <div className="space-y-1">
@@ -117,8 +122,8 @@ export function Sidebar({ className, onItemClick }: SidebarProps) {
                   className={cn(
                     "group flex items-center px-3 py-2 text-sm font-medium rounded-md transition-colors",
                     isActive
-                      ? "bg-primary text-primary-foreground"
-                      : "text-muted-foreground hover:bg-accent hover:text-accent-foreground"
+                      ? "bg-counselflow-primary text-white shadow-lg"
+                      : "text-counselflow-light hover:bg-counselflow-primary/20 hover:text-white"
                   )}
                 >
                   <item.icon className="mr-3 h-5 w-5 flex-shrink-0" />
@@ -131,7 +136,7 @@ export function Sidebar({ className, onItemClick }: SidebarProps) {
 
         {/* AI Services Section */}
         <div className="pt-4">
-          <h3 className="px-3 text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2">
+          <h3 className="px-3 text-xs font-semibold text-counselflow-light uppercase tracking-wider mb-2">
             AI Services
           </h3>
           <div className="space-y-1">
@@ -145,8 +150,8 @@ export function Sidebar({ className, onItemClick }: SidebarProps) {
                   className={cn(
                     "group flex items-center px-3 py-2 text-sm font-medium rounded-md transition-colors",
                     isActive
-                      ? "bg-primary text-primary-foreground"
-                      : "text-muted-foreground hover:bg-accent hover:text-accent-foreground"
+                      ? "bg-counselflow-bright text-white shadow-lg"
+                      : "text-counselflow-light hover:bg-counselflow-bright/20 hover:text-white"
                   )}
                 >
                   <item.icon className="mr-3 h-5 w-5 flex-shrink-0" />
@@ -159,7 +164,7 @@ export function Sidebar({ className, onItemClick }: SidebarProps) {
 
         {/* Administration */}
         <div className="pt-4">
-          <h3 className="px-3 text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2">
+          <h3 className="px-3 text-xs font-semibold text-counselflow-light uppercase tracking-wider mb-2">
             Administration
           </h3>
           <div className="space-y-1">
@@ -173,8 +178,8 @@ export function Sidebar({ className, onItemClick }: SidebarProps) {
                   className={cn(
                     "group flex items-center px-3 py-2 text-sm font-medium rounded-md transition-colors",
                     isActive
-                      ? "bg-primary text-primary-foreground"
-                      : "text-muted-foreground hover:bg-accent hover:text-accent-foreground"
+                      ? "bg-counselflow-primary text-white shadow-lg"
+                      : "text-counselflow-light hover:bg-counselflow-primary/20 hover:text-white"
                   )}
                 >
                   <item.icon className="mr-3 h-5 w-5 flex-shrink-0" />
@@ -193,8 +198,8 @@ export function Sidebar({ className, onItemClick }: SidebarProps) {
             className={cn(
               "group flex items-center px-3 py-2 text-sm font-medium rounded-md transition-colors",
               pathname === "/settings"
-                ? "bg-primary text-primary-foreground"
-                : "text-muted-foreground hover:bg-accent hover:text-accent-foreground"
+                ? "bg-counselflow-primary text-white shadow-lg"
+                : "text-counselflow-light hover:bg-counselflow-primary/20 hover:text-white"
             )}
           >
             <Settings className="mr-3 h-5 w-5 flex-shrink-0" />

@@ -1,0 +1,16 @@
+# =============================================================================
+# CounselFlow Ultimate V3 - Grafana Dashboard Configuration
+# =============================================================================
+
+apiVersion: 1
+
+providers:
+  - name: 'CounselFlow Dashboards'
+    orgId: 1
+    folder: 'CounselFlow'
+    type: file
+    disableDeletion: false
+    updateIntervalSeconds: 10
+    allowUiUpdates: true
+    options:
+      path: /etc/grafana/provisioning/dashboards

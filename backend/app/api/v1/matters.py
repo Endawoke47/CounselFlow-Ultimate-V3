@@ -11,7 +11,7 @@ import structlog
 
 from app.core.database import get_prisma
 from app.api.v1.auth import get_current_active_user
-from app.schemas.user import UserRole
+from app.schemas.user import UserRole, Permission
 from app.schemas.matter import (
     MatterCreate, MatterUpdate, MatterResponse, MatterListResponse,
     MatterAnalysisRequest, MatterAnalysisResponse, MatterSearchFilters,
@@ -19,6 +19,7 @@ from app.schemas.matter import (
     BillingType, RiskLevel, MatterDashboardSummary
 )
 from app.services.matter_service import MatterService
+from app.services.rbac_service import require_permission
 from app.core.config import Constants
 
 logger = structlog.get_logger()
@@ -31,19 +32,13 @@ def get_matter_service(prisma: Prisma = Depends(get_prisma)) -> MatterService:
 
 
 @router.post("/", response_model=MatterResponse, status_code=status.HTTP_201_CREATED)
+@require_permission(Permission.MATTER_CREATE)
 async def create_matter(
     matter_data: MatterCreate,
     current_user = Depends(get_current_active_user),
     matter_service: MatterService = Depends(get_matter_service)
 ):
     """Create a new legal matter"""
-    
-    # Check permissions - legal roles can create matters
-    if current_user.role not in [UserRole.ADMIN, UserRole.IN_HOUSE_COUNSEL, UserRole.LEGAL_OPS, UserRole.EXTERNAL_COUNSEL]:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Not authorized to create matters"
-        )
     
     try:
         matter = await matter_service.create_matter(matter_data, current_user.id)
@@ -68,6 +63,7 @@ async def create_matter(
 
 
 @router.get("/", response_model=MatterListResponse)
+@require_permission(Permission.MATTER_READ)
 async def get_matters(
     # Pagination
     skip: int = Query(0, ge=0, description="Number of matters to skip"),
@@ -183,6 +179,7 @@ async def get_matters(
 
 
 @router.get("/{matter_id}", response_model=MatterResponse)
+@require_permission(Permission.MATTER_READ)
 async def get_matter(
     matter_id: str,
     current_user = Depends(get_current_active_user),
@@ -214,6 +211,7 @@ async def get_matter(
 
 
 @router.put("/{matter_id}", response_model=MatterResponse)
+@require_permission(Permission.MATTER_UPDATE)
 async def update_matter(
     matter_id: str,
     matter_data: MatterUpdate,
@@ -261,6 +259,7 @@ async def update_matter(
 
 
 @router.delete("/{matter_id}")
+@require_permission(Permission.MATTER_DELETE)
 async def delete_matter(
     matter_id: str,
     current_user = Depends(get_current_active_user),
@@ -309,6 +308,7 @@ async def delete_matter(
 
 
 @router.post("/{matter_id}/analyze", response_model=MatterAnalysisResponse)
+@require_permission(Permission.AI_ADVANCED)
 async def analyze_matter(
     matter_id: str,
     analysis_request: MatterAnalysisRequest,

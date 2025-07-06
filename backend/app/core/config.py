@@ -3,9 +3,12 @@ CounselFlow Ultimate V3 - Application Configuration
 """
 
 import os
-from typing import List, Optional, Any
-from pydantic import BaseSettings, validator, Field
+import secrets
+from typing import List, Optional, Any, Dict
+from pydantic import BaseSettings, validator, Field, root_validator
 from functools import lru_cache
+from urllib.parse import urlparse
+import logging
 
 
 class Settings(BaseSettings):
@@ -64,6 +67,15 @@ class Settings(BaseSettings):
     SMTP_PORT: int = Field(default=587, env="SMTP_PORT")
     SMTP_USER: Optional[str] = Field(default=None, env="SMTP_USER")
     SMTP_PASSWORD: Optional[str] = Field(default=None, env="SMTP_PASSWORD")
+    
+    # Caching Configuration
+    ENABLE_RESPONSE_CACHE: bool = Field(default=True, env="ENABLE_RESPONSE_CACHE")
+    DEFAULT_CACHE_TTL: int = Field(default=300, env="DEFAULT_CACHE_TTL")  # 5 minutes
+    MAX_CACHE_SIZE: int = Field(default=100, env="MAX_CACHE_SIZE")  # MB
+    CACHE_COMPRESSION_THRESHOLD: int = Field(default=1024, env="CACHE_COMPRESSION_THRESHOLD")  # bytes
+    ENABLE_QUERY_CACHE: bool = Field(default=True, env="ENABLE_QUERY_CACHE")
+    ENABLE_AI_CACHE: bool = Field(default=True, env="ENABLE_AI_CACHE")
+    AI_CACHE_DEFAULT_TTL: int = Field(default=3600, env="AI_CACHE_DEFAULT_TTL")  # 1 hour
     FROM_EMAIL: str = Field(default="noreply@counselflow.com", env="FROM_EMAIL")
     
     # Rate Limiting
@@ -116,6 +128,51 @@ class Settings(BaseSettings):
     def validate_cors_origins(cls, v):
         """Convert comma-separated string to list"""
         return [origin.strip() for origin in v.split(",")]
+    
+    @validator("SECRET_KEY")
+    def validate_secret_key(cls, v):
+        """Ensure secret key is strong enough"""
+        if len(v) < 32:
+            raise ValueError("SECRET_KEY must be at least 32 characters long")
+        return v
+    
+    @validator("DATABASE_URL")
+    def validate_database_url(cls, v):
+        """Validate database URL format"""
+        try:
+            parsed = urlparse(v)
+            if not parsed.scheme.startswith("postgresql"):
+                raise ValueError("DATABASE_URL must be a PostgreSQL URL")
+            if not parsed.hostname:
+                raise ValueError("DATABASE_URL must include hostname")
+            return v
+        except Exception as e:
+            raise ValueError(f"Invalid DATABASE_URL: {e}")
+    
+    @validator("REDIS_URL")
+    def validate_redis_url(cls, v):
+        """Validate Redis URL format"""
+        try:
+            parsed = urlparse(v)
+            if not parsed.scheme.startswith("redis"):
+                raise ValueError("REDIS_URL must be a Redis URL")
+            return v
+        except Exception as e:
+            raise ValueError(f"Invalid REDIS_URL: {e}")
+    
+    @root_validator
+    def validate_ai_configuration(cls, values):
+        """Ensure at least one AI service is configured"""
+        ai_keys = [
+            values.get("OPENAI_API_KEY"),
+            values.get("ANTHROPIC_API_KEY"),
+            values.get("GOOGLE_API_KEY")
+        ]
+        
+        if not any(ai_keys):
+            logging.warning("No AI services configured - AI features will be disabled")
+        
+        return values
     
     @property
     def database_url_async(self) -> str:

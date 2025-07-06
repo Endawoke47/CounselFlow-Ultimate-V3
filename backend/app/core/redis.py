@@ -26,7 +26,7 @@ redis_client: Optional[Redis] = None
     wait=wait_exponential(multiplier=1, min=2, max=5),
     reraise=True
 )
-async def create_redis_connection() -> None:
+async def initialize_redis() -> None:
     """Create Redis connection with retry logic"""
     global redis_pool, redis_client
     

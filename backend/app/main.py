@@ -15,15 +15,26 @@ from sentry_sdk.integrations.sqlalchemy import SqlalchemyIntegration
 import uvicorn
 import sys
 import os
+from datetime import datetime
+import time
+import asyncio
+from contextlib import asynccontextmanager
 
 # Add the parent directory to the path so we can import our modules
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from app.core.config import settings
 from app.core.database import create_database_connection
+from app.core.logging_config import configure_logging
+from app.core.error_handlers import (
+    CounselFlowError, RequestValidationError, HTTPException as CounselFlowHTTPException,
+    counselflow_exception_handler, validation_exception_handler, 
+    http_exception_handler, general_exception_handler
+)
 from app.middleware.security import SecurityMiddleware
 from app.middleware.logging import LoggingMiddleware
 from app.middleware.rate_limiting import RateLimitMiddleware
+from app.middleware.response_cache import ResponseCacheMiddleware, CACHE_CONFIGS
 
 # Import all API routers
 from app.api.v1 import (
@@ -40,27 +51,12 @@ from app.api.v1 import (
     tasks,
     ai,
     notifications,
-    admin
+    admin,
+    dashboard
 )
 
-# Configure structured logging
-structlog.configure(
-    processors=[
-        structlog.stdlib.filter_by_level,
-        structlog.stdlib.add_logger_name,
-        structlog.stdlib.add_log_level,
-        structlog.stdlib.PositionalArgumentsFormatter(),
-        structlog.processors.TimeStamper(fmt="iso"),
-        structlog.processors.StackInfoRenderer(),
-        structlog.processors.format_exc_info,
-        structlog.processors.UnicodeDecoder(),
-        structlog.processors.JSONRenderer()
-    ],
-    context_class=dict,
-    logger_factory=structlog.stdlib.LoggerFactory(),
-    cache_logger_on_first_use=True,
-)
-
+# Configure enhanced logging system
+configure_logging()
 logger = structlog.get_logger()
 
 # Initialize Sentry for error tracking
@@ -75,7 +71,106 @@ if settings.SENTRY_DSN:
         environment=settings.ENVIRONMENT,
     )
 
-# Create FastAPI application
+# Application lifecycle management with improved error handling
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Enhanced application lifecycle management"""
+    startup_time = time.time()
+    logger.info("Starting CounselFlow Ultimate V3", version="3.0.0")
+    
+    try:
+        # Initialize database connection with retry logic
+        max_retries = 3
+        for attempt in range(max_retries):
+            try:
+                await create_database_connection()
+                logger.info("Database connection established")
+                break
+            except Exception as e:
+                if attempt == max_retries - 1:
+                    logger.error("Failed to establish database connection", error=str(e))
+                    raise
+                logger.warning(f"Database connection attempt {attempt + 1} failed, retrying...", error=str(e))
+                await asyncio.sleep(2 ** attempt)  # Exponential backoff
+        
+        # Initialize AI services with error handling
+        try:
+            from app.services.ai_orchestrator import AIOrchestrator
+            ai_orchestrator = AIOrchestrator()
+            await ai_orchestrator.initialize()
+            app.state.ai_orchestrator = ai_orchestrator
+            logger.info("AI services initialized")
+        except Exception as e:
+            logger.warning("AI services initialization failed, continuing without AI", error=str(e))
+            app.state.ai_orchestrator = None
+        
+        # Run any pending database migrations
+        if getattr(settings, 'AUTO_MIGRATE', False):
+            try:
+                from app.core.database import run_migrations
+                await run_migrations()
+                logger.info("Database migrations completed")
+            except Exception as e:
+                logger.error("Database migration failed", error=str(e))
+                # Don't fail startup for migration errors in production
+                if settings.ENVIRONMENT != "production":
+                    raise
+        
+        # Initialize Redis connection
+        try:
+            from app.core.redis import initialize_redis
+            await initialize_redis()
+            logger.info("Redis connection established")
+        except Exception as e:
+            logger.warning("Redis initialization failed, some features may be unavailable", error=str(e))
+        
+        startup_duration = time.time() - startup_time
+        logger.info(
+            "CounselFlow Ultimate V3 startup completed",
+            startup_duration=f"{startup_duration:.2f}s",
+            timestamp=datetime.utcnow().isoformat()
+        )
+        
+        # Store startup info in app state
+        app.state.startup_time = datetime.utcnow()
+        app.state.startup_duration = startup_duration
+        
+        yield
+        
+    except Exception as e:
+        logger.error("Failed to start CounselFlow Ultimate V3", error=str(e))
+        raise
+    finally:
+        # Cleanup on shutdown
+        logger.info("Shutting down CounselFlow Ultimate V3")
+        
+        try:
+            # Close AI services
+            if hasattr(app.state, 'ai_orchestrator') and app.state.ai_orchestrator:
+                await app.state.ai_orchestrator.shutdown()
+                logger.info("AI services shut down")
+        except Exception as e:
+            logger.error("Error shutting down AI services", error=str(e))
+        
+        try:
+            # Close database connections
+            from app.core.database import close_database_connection
+            await close_database_connection()
+            logger.info("Database connections closed")
+        except Exception as e:
+            logger.error("Error closing database connections", error=str(e))
+        
+        try:
+            # Close Redis connections
+            from app.core.redis import close_redis_connection
+            await close_redis_connection()
+            logger.info("Redis connections closed")
+        except Exception as e:
+            logger.error("Error closing Redis connections", error=str(e))
+        
+        logger.info("CounselFlow Ultimate V3 shutdown completed")
+
+# Create FastAPI application with enhanced lifespan management
 app = FastAPI(
     title="CounselFlow Ultimate V3",
     description="AI-Powered Enterprise Legal Management Platform",
@@ -83,6 +178,7 @@ app = FastAPI(
     docs_url="/docs" if settings.ENABLE_SWAGGER_DOCS else None,
     redoc_url="/redoc" if settings.ENABLE_SWAGGER_DOCS else None,
     openapi_url="/openapi.json" if settings.ENABLE_SWAGGER_DOCS else None,
+    lifespan=lifespan,
 )
 
 # Add middleware
@@ -99,6 +195,16 @@ app.add_middleware(
     allowed_hosts=["*"] if settings.ENVIRONMENT == "development" else ["counselflow.com", "*.counselflow.com"]
 )
 
+# Enhanced caching middleware
+response_cache_middleware = ResponseCacheMiddleware(app)
+# Configure cache rules for different endpoints
+response_cache_middleware.add_cache_rule("/api/v1/dashboard", CACHE_CONFIGS["dashboard"])
+response_cache_middleware.add_cache_rule("/api/v1/clients", CACHE_CONFIGS["clients"])
+response_cache_middleware.add_cache_rule("/api/v1/contracts", CACHE_CONFIGS["contracts"])
+response_cache_middleware.add_cache_rule("/api/v1/matters", CACHE_CONFIGS["matters"])
+response_cache_middleware.add_cache_rule("/api/v1/analytics", CACHE_CONFIGS["analytics"])
+
+app.add_middleware(ResponseCacheMiddleware)
 app.add_middleware(SecurityMiddleware)
 app.add_middleware(LoggingMiddleware)
 app.add_middleware(RateLimitMiddleware)
@@ -149,77 +255,137 @@ async def general_exception_handler(request: Request, exc: Exception):
         }
     )
 
-# Application lifecycle events
-@app.on_event("startup")
-async def startup_event():
-    """Initialize application on startup"""
-    logger.info("Starting CounselFlow Ultimate V3")
-    
-    # Initialize database connection
-    await create_database_connection()
-    logger.info("Database connection established")
-    
-    # Initialize AI services
-    from app.services.ai_orchestrator import AIOrchestrator
-    ai_orchestrator = AIOrchestrator()
-    await ai_orchestrator.initialize()
-    logger.info("AI services initialized")
-    
-    # Run any pending database migrations
-    if settings.AUTO_MIGRATE:
-        from app.core.database import run_migrations
-        await run_migrations()
-        logger.info("Database migrations completed")
-    
-    logger.info("CounselFlow Ultimate V3 startup completed")
-
-@app.on_event("shutdown")
-async def shutdown_event():
-    """Clean up on application shutdown"""
-    logger.info("Shutting down CounselFlow Ultimate V3")
-    
-    # Close database connections
-    from app.core.database import close_database_connection
-    await close_database_connection()
-    logger.info("Database connections closed")
-    
-    logger.info("CounselFlow Ultimate V3 shutdown completed")
-
-# Health check endpoint
+# Enhanced health check endpoint with detailed metrics
 @app.get("/health")
 async def health_check():
-    """Health check endpoint for monitoring"""
+    """Comprehensive health check endpoint for monitoring"""
+    start_time = time.time()
+    health_status = {
+        "status": "healthy",
+        "version": "3.0.0",
+        "environment": settings.ENVIRONMENT,
+        "timestamp": datetime.utcnow().isoformat(),
+        "uptime_seconds": (datetime.utcnow() - app.state.startup_time).total_seconds() if hasattr(app.state, 'startup_time') else None,
+        "startup_duration": app.state.startup_duration if hasattr(app.state, 'startup_duration') else None,
+        "services": {},
+        "metrics": {}
+    }
+    
+    # Check database connectivity
     try:
-        # Check database connectivity
         from app.core.database import check_database_health
-        db_healthy = await check_database_health()
+        db_start = time.time()
+        db_healthy = await asyncio.wait_for(check_database_health(), timeout=5.0)
+        db_response_time = (time.time() - db_start) * 1000  # Convert to ms
         
-        # Check Redis connectivity
-        from app.core.redis import check_redis_health
-        redis_healthy = await check_redis_health()
-        
-        # Check AI services
-        from app.services.ai_orchestrator import check_ai_health
-        ai_healthy = await check_ai_health()
-        
-        return {
-            "status": "healthy" if all([db_healthy, redis_healthy, ai_healthy]) else "degraded",
-            "database": "healthy" if db_healthy else "unhealthy",
-            "redis": "healthy" if redis_healthy else "unhealthy",
-            "ai_services": "healthy" if ai_healthy else "unhealthy",
-            "version": "3.0.0",
-            "environment": settings.ENVIRONMENT,
-            "timestamp": structlog.processors.TimeStamper(fmt="iso")(),
+        health_status["services"]["database"] = {
+            "status": "healthy" if db_healthy else "unhealthy",
+            "response_time_ms": round(db_response_time, 2)
         }
+    except asyncio.TimeoutError:
+        health_status["services"]["database"] = {"status": "timeout", "response_time_ms": 5000}
+        health_status["status"] = "degraded"
     except Exception as e:
-        logger.error("Health check failed", exception=str(e))
+        health_status["services"]["database"] = {"status": "error", "error": str(e)}
+        health_status["status"] = "degraded"
+    
+    # Check Redis connectivity
+    try:
+        from app.core.redis import check_redis_health
+        redis_start = time.time()
+        redis_healthy = await asyncio.wait_for(check_redis_health(), timeout=3.0)
+        redis_response_time = (time.time() - redis_start) * 1000
+        
+        health_status["services"]["redis"] = {
+            "status": "healthy" if redis_healthy else "unhealthy",
+            "response_time_ms": round(redis_response_time, 2)
+        }
+    except asyncio.TimeoutError:
+        health_status["services"]["redis"] = {"status": "timeout", "response_time_ms": 3000}
+        health_status["status"] = "degraded"
+    except Exception as e:
+        health_status["services"]["redis"] = {"status": "error", "error": str(e)}
+        health_status["status"] = "degraded"
+    
+    # Check AI services
+    try:
+        if hasattr(app.state, 'ai_orchestrator') and app.state.ai_orchestrator:
+            ai_start = time.time()
+            ai_healthy = await asyncio.wait_for(app.state.ai_orchestrator.health_check(), timeout=10.0)
+            ai_response_time = (time.time() - ai_start) * 1000
+            
+            health_status["services"]["ai_services"] = {
+                "status": "healthy" if ai_healthy else "unhealthy",
+                "response_time_ms": round(ai_response_time, 2)
+            }
+        else:
+            health_status["services"]["ai_services"] = {"status": "not_initialized"}
+    except asyncio.TimeoutError:
+        health_status["services"]["ai_services"] = {"status": "timeout", "response_time_ms": 10000}
+        health_status["status"] = "degraded"
+    except Exception as e:
+        health_status["services"]["ai_services"] = {"status": "error", "error": str(e)}
+        health_status["status"] = "degraded"
+    
+    # Calculate overall health
+    unhealthy_services = [
+        service for service, info in health_status["services"].items()
+        if info.get("status") not in ["healthy", "not_initialized"]
+    ]
+    
+    if unhealthy_services:
+        if len(unhealthy_services) == len(health_status["services"]):
+            health_status["status"] = "unhealthy"
+        else:
+            health_status["status"] = "degraded"
+    
+    # Add performance metrics
+    total_response_time = (time.time() - start_time) * 1000
+    health_status["metrics"] = {
+        "total_response_time_ms": round(total_response_time, 2),
+        "unhealthy_services": unhealthy_services
+    }
+    
+    # Return appropriate status code
+    if health_status["status"] == "unhealthy":
         return JSONResponse(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            content={
-                "status": "unhealthy",
-                "error": str(e),
-                "timestamp": structlog.processors.TimeStamper(fmt="iso")(),
-            }
+            content=health_status
+        )
+    elif health_status["status"] == "degraded":
+        return JSONResponse(
+            status_code=status.HTTP_206_PARTIAL_CONTENT,
+            content=health_status
+        )
+    else:
+        return health_status
+
+# Liveness probe for Kubernetes
+@app.get("/health/live")
+async def liveness_check():
+    """Simple liveness check for container orchestration"""
+    return {"status": "alive", "timestamp": datetime.utcnow().isoformat()}
+
+# Readiness probe for Kubernetes
+@app.get("/health/ready")
+async def readiness_check():
+    """Readiness check to ensure application is ready to serve traffic"""
+    try:
+        # Quick database check
+        from app.core.database import check_database_health
+        db_healthy = await asyncio.wait_for(check_database_health(), timeout=2.0)
+        
+        if db_healthy:
+            return {"status": "ready", "timestamp": datetime.utcnow().isoformat()}
+        else:
+            return JSONResponse(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                content={"status": "not_ready", "reason": "database_unavailable"}
+            )
+    except Exception as e:
+        return JSONResponse(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            content={"status": "not_ready", "reason": str(e)}
         )
 
 # API router registration
@@ -254,6 +420,9 @@ app.include_router(ai_orchestrator.router, prefix=f"{API_V1_PREFIX}/ai/orchestra
 # System services
 app.include_router(notifications.router, prefix=f"{API_V1_PREFIX}/notifications", tags=["Notifications"])
 app.include_router(admin.router, prefix=f"{API_V1_PREFIX}/admin", tags=["Administration"])
+
+# Dashboard analytics
+app.include_router(dashboard.router, prefix=f"{API_V1_PREFIX}/dashboard", tags=["Dashboard Analytics"])
 
 # Root endpoint
 @app.get("/")
@@ -293,6 +462,7 @@ async def api_info():
             "ai": "AI-powered legal services",
             "notifications": "Notification system",
             "admin": "System administration",
+            "dashboard": "Analytics and reporting dashboard",
         },
         "features": [
             "Multi-LLM AI integration (GPT-4, Claude, Gemini)",

@@ -11,7 +11,7 @@ import structlog
 
 from app.core.database import get_prisma
 from app.api.v1.auth import get_current_active_user
-from app.schemas.user import UserRole
+from app.schemas.user import UserRole, Permission
 from app.schemas.contract import (
     ContractCreate, ContractUpdate, ContractResponse, ContractListResponse,
     ContractAnalysisRequest, ContractAnalysisResponse, ContractSearchFilters,
@@ -19,6 +19,7 @@ from app.schemas.contract import (
     ContractPriority, RiskLevel
 )
 from app.services.contract_service import ContractService
+from app.services.rbac_service import require_permission
 from app.core.config import Constants
 
 logger = structlog.get_logger()
@@ -31,19 +32,13 @@ def get_contract_service(prisma: Prisma = Depends(get_prisma)) -> ContractServic
 
 
 @router.post("/", response_model=ContractResponse, status_code=status.HTTP_201_CREATED)
+@require_permission(Permission.CONTRACT_CREATE)
 async def create_contract(
     contract_data: ContractCreate,
     current_user = Depends(get_current_active_user),
     contract_service: ContractService = Depends(get_contract_service)
 ):
     """Create a new contract"""
-    
-    # Check permissions - legal roles can create contracts
-    if current_user.role not in [UserRole.ADMIN, UserRole.IN_HOUSE_COUNSEL, UserRole.LEGAL_OPS, UserRole.EXTERNAL_COUNSEL]:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Not authorized to create contracts"
-        )
     
     try:
         contract = await contract_service.create_contract(contract_data, current_user.id)
@@ -66,6 +61,7 @@ async def create_contract(
 
 
 @router.get("/", response_model=ContractListResponse)
+@require_permission(Permission.CONTRACT_READ)
 async def get_contracts(
     # Pagination
     skip: int = Query(0, ge=0, description="Number of contracts to skip"),
@@ -149,6 +145,7 @@ async def get_contracts(
 
 
 @router.get("/{contract_id}", response_model=ContractResponse)
+@require_permission(Permission.CONTRACT_READ)
 async def get_contract(
     contract_id: str,
     current_user = Depends(get_current_active_user),
@@ -180,6 +177,7 @@ async def get_contract(
 
 
 @router.put("/{contract_id}", response_model=ContractResponse)
+@require_permission(Permission.CONTRACT_UPDATE)
 async def update_contract(
     contract_id: str,
     contract_data: ContractUpdate,
@@ -227,6 +225,7 @@ async def update_contract(
 
 
 @router.delete("/{contract_id}")
+@require_permission(Permission.CONTRACT_DELETE)
 async def delete_contract(
     contract_id: str,
     current_user = Depends(get_current_active_user),
